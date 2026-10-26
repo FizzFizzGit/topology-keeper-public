@@ -15,6 +15,6 @@ console.log(`Release files: ${path.resolve(output)}`);
 const source = path.join("dist", "source", `${manifest.id}-${manifest.version}`);
 mkdirSync(source, { recursive: true });
 for (const directory of ["src", "tests", "scripts"]) cpSync(directory, path.join(source, directory), { recursive: true });
-for (const file of ["README.md", "LICENSE", "RELEASE-CHECKLIST.md", "manifest.json", "versions.json", "package.json", "package-lock.json", ".gitignore", ".gitattributes", "styles.css", "main.js", "esbuild-options.mjs", "build-once.mjs", "build.mjs", "deploy.mjs", "env.bat", "build.bat", "dev.bat", "setup.bat"])
+for (const file of ["README.md", "README.ja.md", "LICENSE", "RELEASE-CHECKLIST.md", "manifest.json", "versions.json", "package.json", "package-lock.json", ".gitignore", ".gitattributes", "styles.css", "main.js", "esbuild-options.mjs", "build-once.mjs", "build.mjs", "deploy.mjs", "env.bat", "build.bat", "dev.bat", "setup.bat"])
   copyFileSync(file, path.join(source, file));
 console.log(`Source snapshot (no Git history or local settings): ${path.resolve(source)}`);

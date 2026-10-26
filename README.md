@@ -1,120 +1,115 @@
 # Topology Keeper
 
-Obsidianプラグイン。ノート間のリンクとタグを使った構造分析、タグ提案、外部ファイル管理を行います。プラグインのバージョンは `manifest.json` を参照してください。
+English | [日本語](README.ja.md)
 
-現在は公開候補版です。デスクトップ専用で、開発・自動テストはWindows環境で行っています。macOS・Linux、Obsidianの最小対応バージョン、実際のVaultでの操作確認は[公開前チェック](RELEASE-CHECKLIST.md)に記録します。
+Topology Keeper is a desktop-only Obsidian plugin that helps you explore the structure of your notes through links and tags. It provides graph area analysis, tag suggestions, and tools for associating local external files with notes.
 
-## 導入と旧版からの移行
+This is an experimental release. Development and automated tests have been performed on Windows. Compatibility with macOS, Linux, and the declared minimum Obsidian version still needs verification. The plugin interface is currently in Japanese.
 
-Obsidianを終了し、Vaultの `.obsidian/plugins/topology-keeper/` に配布物の `main.js`、`manifest.json`、`styles.css` を置いて起動します。コミュニティプラグイン画面で有効にしてください。
+## Features
 
-旧ローカル版のIDは `Topology-Keeper`、公開候補版は `topology-keeper` です。設定を引き継ぐ場合は、Obsidianを終了して旧プラグインフォルダと `data.json` をバックアップし、新しい小文字のIDに対応するフォルダへ `data.json` を移してください。大文字・小文字の区別がない環境では、一度仮のフォルダ名を経由して変更します。旧版と新版は同時に有効にしないでください。ノートや管理フォルダの移動は不要です。既存Vaultへの自動配置・ID移行は行いません。
+- Analyze graph areas using link density and evidence of planarity or non-planarity.
+- Inspect an area's notes in an interactive graph with dragging, zooming, and surrounding nodes.
+- Apply area classification colors to Obsidian's standard graph.
+- Suggest tags based on note content and relationships.
+- Associate external files with notes and create metadata notes, image thumbnails, and Bases.
+- List linked files and Bases, copy links, and remove associations.
+- Detect orphaned metadata notes, thumbnails, and Bases, with confirmation before deletion.
+- Remember the positions of the main window, detail window, and area graph.
+- Recover links and Base membership after an interrupted external-file import.
 
-## 外部ファイルと安全性
+## Installation
 
-- 元ファイルは参照するだけで、取り込み時にVaultへコピーしません。メタノート・Base・サムネイルはVault内に作成します。
-- 元画像の自動オープンと外部画像の埋め込み表示は既定でオフです。信頼できるVaultで、設定の「外部ファイル」から必要なものを有効にしてください。
-- ローカルの `file:` URLを扱います。ネットワークパスは対象外です。OSで開く際には実行ファイル・スクリプト等の主要形式も拒否しますが、あらゆる危険な文書を検知する機能ではありません。
-- `source`には元ファイルの絶対パスが保存されます。Vault共有時にはユーザー名・フォルダ構成も共有され得ます。別PCへの同期では元ファイルの場所を修正する必要があります。サムネイルにも元画像の内容が含まれます。
-- プラグイン本体に外部API送信・テレメトリーの実装はありません。OSの既定アプリで開いた文書の通信は、そのアプリの動作に従います。
-- 画像は1枚32 MiBまで、元画像データのキャッシュは128 MiB・64件までです。これはデコード後の画像や画面全体のメモリ使用量の上限ではありません。
-- 削除は確認後にObsidianのゴミ箱設定に従って行います。未解析ノート・取り込み中・未完了の取り込みがある間は削除を停止します。他から参照されるサムネイルも保護します。同期や同時編集の競合まで保証するものではないため、検証用Vaultとバックアップを使用してください。
-- 自動削除候補は、識別情報を持つメタノート（旧版はUUID名とローカルsource）、UUID名のBase・WebPに限定します。管理フォルダ内に置かれた任意のファイルを一律に対象にはしません。
+While community directory approval is pending, install manually:
 
-取り込みに失敗すると、作成・再利用したファイルのパスを `data.json` の復旧記録に保持します。コマンド「未完了の取り込みを復旧」または設定画面の「復旧」で、元ノートへのリンクとBase所属を補います。作成途中のメタノートの内容やサムネイルは確認してください。元ノートを移動した場合は元の場所へ戻してから復旧します。手動確認後は「記録だけ解除」でファイルを残して復旧記録を解除できます。
+1. Back up your vault and close Obsidian.
+2. Download `main.js`, `manifest.json`, and `styles.css` from the assets of a [GitHub release](https://github.com/FizzFizzGit/topology-keeper-public/releases).
+3. Place the three files in `<vault>/.obsidian/plugins/topology-keeper/`.
+4. Start Obsidian and enable **Topology Keeper** in the Community plugins settings.
 
-## 主な機能
+The version and declared minimum Obsidian version are recorded in `manifest.json`. Use a test vault with a backup when trying this experimental release.
 
-- Vault内ノートのタグ提案
-- 外部ファイルをノートへ関連付け、メタノートやサムネイルを作成
-- Baseの作成・管理。取り込み用Baseは関連グループのメタノートを表示し、単体作成Baseは選択タグで絞り込む
-- 関連付けたBase・ファイルの一覧表示、リンクのコピーと解除
-- 孤立メタノート・サムネイル・Baseの検出と削除
-- Vault外画像の埋め込み表示
-- グラフの平面性・密度分析と、平面／ホットスポット／非平面の色分け
+### Migrating from the earlier local version
 
-## Baseとメタノート
+The earlier local plugin ID was `Topology-Keeper`; the public ID is `topology-keeper`. To migrate manually, close Obsidian, back up the old plugin folder and its `data.json`, and transfer the settings file to the folder for the new ID. On a filesystem that ignores letter case, use a temporary folder name when renaming. Enable only one version at a time. Your notes and managed folders do not need to move.
 
-- 取り込み時に作るBaseはUUID名で保存し、所属グループに対応するメタノートを表示します。
-- 単体作成BaseはUUID名で保存し、選択したタグだけを条件にします。複数タグはAND条件です。タグが未選択なら`filters`は設定しません。
-- タグ条件は`file.hasTag("tag")`で評価し、候補にないタグも入力できます。
+Local deployment scripts preserve an existing installation's ID capitalization and `data.json`. They do not change the public manifest's ID.
 
-タグ提案では設定画面から、新規タグ候補に含めないストップワードを編集できます。1行に1語で入力します。
+## Usage
 
-## ソース構成
+### Explore note structure
 
-`src/` が編集対象のソースです。ルートの `main.js` と `styles.css` はビルド成果物で、READMEを含む説明文書はこのファイルに集約しています。
+Open the main window and select the detail window to view maintenance results and area analysis. Use **再チェック** (Recheck) to refresh the results. Open an area's graph to inspect its nodes; drag nodes to adjust their layout, use the mouse wheel or zoom buttons, and click a note to open it in a tab. Resize the graph using its bottom-right handle.
 
-| ファイル | 役割 |
+Drag a window's title bar to move it. Positions are saved for the next session. The main and detail windows have position reset buttons; the settings page and the **小窓・詳細窓の位置をリセット** command reset both windows.
+
+### Suggest tags
+
+Open a regular Markdown note and run **タグを提案（既存タグから）** from the command palette. Review the suggestions before applying them. In settings, edit the stop words used to exclude terms from new tag candidates, one word per line.
+
+### Associate external files
+
+With a regular Markdown note active, run **外部ファイルを追加（メタノート作成）**, choose local files, and provide a Base name when prompted. Files already inside the vault are linked directly. External files remain in their original locations; the plugin creates metadata notes, thumbnails for supported images, and a Base inside the vault.
+
+Imported Bases show metadata notes belonging to the import group. Standalone Bases filter by selected tags using AND conditions; selecting no tags leaves the Base unfiltered. Files and Bases associated with the active note appear in the main window, where you can open them, copy links, or remove associations.
+
+### Recover an interrupted import
+
+If an import fails, its recovery record is saved in `data.json` and cleanup is paused. Run **未完了の取り込みを復旧** (Recover unfinished import), or select **復旧** in settings, to restore links and Base membership. Check partially created metadata notes and thumbnails afterward: recovery does not fully regenerate their contents.
+
+If the original note was moved, restore its original path before recovery. After checking the files manually, **記録だけ解除** clears only the recovery record and keeps the files.
+
+## External files, privacy, and cleanup
+
+- Automatically opening original images and embedding external images are both **off by default**. Enable them under **外部ファイル** in settings only for vaults you trust. Reopen affected notes after changing the embedding setting.
+- External references use local `file:` URLs. Network paths are not supported. Opening a file also rejects common executable and script extensions, but this is not a document malware scanner.
+- Metadata notes store the original file's **absolute path** in `source`. Sharing a vault can reveal usernames and folder names. Paths may need adjustment on another computer. Thumbnails also contain image content.
+- The plugin has no external API submission or telemetry implementation. Documents opened in another application follow that application's network behavior.
+- Image reads are limited to **32 MiB per file**. The original image byte cache is limited to **128 MiB and 64 entries**. These limits do not cap decoded image memory or total application memory.
+- Cleanup asks for confirmation and uses Obsidian's configured trash behavior. It is blocked while notes are unparsed or an import is running or unfinished. Thumbnails referenced elsewhere are protected.
+- Cleanup candidates are limited to identifiable metadata notes and UUID-named Bases and WebP thumbnails. Legacy metadata notes need a UUID filename and a valid local source reference. Tagged metadata notes are excluded from orphan cleanup.
+- Reference checks depend on Obsidian's metadata cache. Synchronization and concurrent editing can still introduce races. Keep backups and review deletion candidates.
+
+Managed folders are configurable. Changing a folder setting does not move existing files; files left in an earlier folder are no longer managed by that setting.
+
+## Understanding area analysis
+
+The graph contains Markdown notes and tags, with edges for note links and tag assignments. Analysis removes vertices of degree zero or one and suppresses degree-two vertices. It then divides biconnected components into groups with concentrated internal links using modularity. Partitions containing fewer than three vertices, or groups whose internal edge count is no greater than their external edge count, are rejected. Biconnected components are extracted again after splitting.
+
+Each resulting area is classified as follows:
+
+- **Non-planar:** the area exceeds the planar edge bound `E > 3V - 6`, or a K5 or K3,3 pattern is detected.
+- **Planar:** the area has fewer than five vertices of degree at least four and fewer than six vertices of degree at least three, ruling out subdivisions of K5 and K3,3. This is a sufficient condition for planarity.
+- **Hotspot:** an area with undetermined planarity, further divided using differences in neighborhood density. Displayed hotspots contain at least three nodes and have at least 25% edge density. A hotspot does not imply non-planarity.
+
+The dense/sparse and planar/non-planar categories are structural indicators. They do not measure note quality or prove that a classification is correct. Links between areas are excluded from each area's planarity test, so these results do not establish planarity of the entire vault. Boundary candidates and mean density change are experimental measures.
+
+Analysis is interrupted at a checkpoint after an approximately ten-second time budget, retaining a matching previous result and graph if available. This is not a strict wall-clock limit. Standard graph coloring uses a private Obsidian API and may stop working after an Obsidian update; the plugin shows a notice if it cannot use that API.
+
+## Development
+
+Node.js 24 is used for development and testing. Install dependencies with `npm ci`.
+
+| Command | Purpose |
 | --- | --- |
-| `main.js` | プラグインのライフサイクル、状態管理、Vault連携、各機能の調整 |
-| `plugin-settings.js` | 既定値、設定の読み込み・互換処理、管理フォルダと画像形式の定義 |
-| `ui-constants.js` | 複数の画面で共有するUI文言・CSSクラス・アイコン・イベント名 |
-| `settings-tab.js` | 設定画面 |
-| `tag-suggest.js` | タグ提案と候補選択モーダル |
-| `base-modal.js` | Base名・タグ条件の入力モーダル |
-| `base-manager.js` | Baseの探索・作成、メタノートとの所属関係、`links`更新 |
-| `base-workflow.js` | タグ選択を伴う単体Base作成のUIフロー |
-| `import-workflow.js` | ファイル選択からリンク・メタノート・サムネイル・Base作成までの取り込み処理 |
-| `file-utils.js` | 管理フォルダ・画像・メインノートの共通判定 |
-| `clipboard.js` | Clipboard APIとtextarea方式による文字列コピー |
-| `external-file-data.js` | `links`の解決とメタノートのサムネイル参照取得 |
-| `external-file-actions.js` | 外部ファイルを開く処理、画像メタノートの自動オープン、リンク解除 |
-| `external-files-view.js` | Base一覧と関連ファイル一覧の表示 |
-| `external-image-embed.js` | Vault外画像の埋め込み、Blob URLのキャッシュと解放 |
-| `thumbnail.js` | 外部画像からWebPサムネイルを生成 |
-| `source-url.js` | `file:///` URLの生成、元ファイルパスとファイル名の抽出 |
-| `maintenance-check.js` | 孤立ファイルの検出。表示・削除操作は持たない |
-| `maintenance-actions.js` | 孤立ファイルの確認付き削除 |
-| `maintenance-workflow.js` | 孤立ファイルとグラフの再判定、実行中断、再チェック表示の管理 |
-| `graph-analysis.js` | グラフ構築、平面性・密度分析、ホットスポット抽出 |
-| `graph-view.js` | 部分グラフの描画、レイアウト、ドラッグ・ズーム、ノード操作 |
-| `standard-graph.js` | Obsidian標準グラフの色グループ設定と新しいグラフ表示 |
-| `main-window.js` | メイン小窓と共有UI部品の描画・配置・再描画 |
-| `detail-window.js` | 詳細窓の表示・配置・エリア分析結果の描画 |
+| `npm test` | Run automated tests for analysis, positions, cleanup protection, external access, recovery, and deployment. |
+| `npm run check` | Check JavaScript syntax and manifest/version consistency. |
+| `npm run build` | Create a minified `main.js` without deployment or Git changes. |
+| `npm run dev` | Watch sources and rebuild with an inline source map, without deployment. |
+| `npm run package` | Validate, test, and build release files and a source snapshot under `dist/`. |
+| `npm run deploy` | Copy the three plugin files to the directory specified by `PLUGIN_DIR`. Build first. |
 
-## エリア分析
+On Windows, `setup.bat` installs dependencies. `build.bat` builds once and deploys if `PLUGIN_DIR` is configured; `dev.bat` watches and deploys on each successful build when configured. Set the destination in an ignored `env.local.bat`, for example:
 
-分析対象はVault内ノートとタグから構築したグラフです。次数1以下の頂点を除き、次数2の頂点を抑制した単純グラフの2連結成分を、内部リンクが集中するまとまり（モジュラリティ）でさらに分割します。3頂点未満のまとまりや、内部の辺数が外部への辺数以下になる分割は採用しません。分割後に2連結成分を再抽出し、各エリアの平面性を判定します。同じ密度の領域同士でも、少数のリンクでつながる場合は別エリアになります。エリアをまたぐリンクは各エリア内の平面性判定には含めないため、グラフ全体の平面性を保証するものではありません。
+```bat
+@echo off
+set "PLUGIN_DIR=C:\path\to\vault\.obsidian\plugins\topology-keeper"
+```
 
-- **非平面**: 頂点数が3以上で辺数が `3V−6` を超える、またはK₅／K₃,₃の構造を検出した領域。いずれも非平面であることの十分な証拠です。
-- **平面**: K₅の細分に必要な次数4以上の頂点が5つ未満、かつK₃,₃の細分に必要な次数3以上の頂点が6つ未満の領域。この十分条件で平面と判定します。
-- **ホットスポット**: 平面性を判定できない領域を、各ノードと1近傍の密度および隣接ノード間の密度差で分割したエリア。3ノード以上かつ密度25%以上のものを表示します。非平面を意味しません。
+Build and deployment scripts do not stage or commit files. Node binaries, dependencies, personal deployment settings, and vault data are excluded from the source distribution.
 
-密度・平面性による4区分（密／疎 × 平面／非平面）は、グラフの状態を読むための目安であり、ノートの品質や分類の正誤を保証しません。境界候補と平均変化度は試験的な指標です。K₅／K₃,₃の探索上限は`plugin-settings.js`の`CONFIG.maxFindings`で定義します。
+Edit plugin code in `src/`; the root `main.js` is a generated bundle, and `styles.css` contains the plugin styles. The [Japanese documentation](README.ja.md) includes a module reference. Manual compatibility and UI checks are tracked in [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md), currently in Japanese.
 
-分類色は設定画面で変更できます。標準グラフを開くと、平面・ホットスポット・非平面ごとに色分けします。詳細窓では各エリアのノート一覧と部分グラフを確認できます。
+## License
 
-小窓と詳細窓はドラッグ後の位置を保存し、次回表示・再起動時に復元します。各窓のヘッダーにある位置リセットボタンで、その窓を初期位置へ戻せます。設定画面の「位置をリセット」またはコマンド「小窓・詳細窓の位置をリセット」では両方を戻せます。部分グラフの初期サイズは最大680×500pxで、右下のハンドルから拡大・縮小できます。
-部分グラフもタイトルバーをドラッグした位置を保存し、別エリアの表示時や再起動後に復元します。画面サイズが変わった場合は表示範囲内へ補正します。
-
-## 設計上の規約
-
-- 表示クラスは、必要な状態取得や操作をコールバックのオブジェクト（`api`）で受け取ります。Vault操作や分析計算と画面描画を分けます。
-- `plugin-settings.js`の`FOLDERS`は複数モジュールで共有する参照です。再代入せず、値を変更するときは中身を更新します。
-- Obsidianの標準グラフ色設定を反映するとき、コアプラグインの`disable`／`enable`は呼びません。保存した色設定で新しいグラフビューを開きます。
-- コメントでは、データの入力元・形式と、返却・保存・書き込みの有無を明記します。推測した理由を事実として書かないようにします。
-
-## ビルド・配置
-
-Node.js 24を開発・テストに使用しています。クリーンなソースから `npm ci` で依存パッケージを取得してください。Windowsでは `setup.bat` も利用できます。ローカルに同梱したNodeを使う場合、`env.bat`がPATHを設定します。Node本体・依存パッケージ・個人用設定は公開ソースに含めません。
-
-- `npm test`: 分析・位置保存・削除保護・外部アクセス・復旧の自動テスト。
-- `npm run check`: JavaScript構文、バージョンとmanifestの整合性確認。
-- `npm run build`: minifyした一回ビルド。Vault配置・Git操作は行いません。
-- `build.bat`: 一回ビルドし、`env.local.bat`等で`PLUGIN_DIR`が設定されていれば配置まで実行します。未設定ならビルドだけを行います。
-- `npm run dev`: inline source map付きwatchビルド。自動配置は行いません。
-- `dev.bat`: watchビルド。`PLUGIN_DIR`が設定されていれば保存のたびに配置します。終了はCtrl+Cです。
-- `npm run package`: チェック・テスト・ビルド後、`dist/topology-keeper/<version>/` に配布3ファイルを作成します。Git履歴やローカル設定を含まないソース一式も `dist/source/topology-keeper-<version>/` に出力します。
-- `esbuild-options.mjs`: 両ビルドで共用する基本設定。
-- `npm run deploy`: 環境変数`PLUGIN_DIR`で指定した場所へ配布3ファイルをコピーします。Vault側の`data.json`はコピーしません。配置前に `npm run build` を実行してください。
-
-PowerShellでの配置先指定例は `$env:PLUGIN_DIR = 'C:\path\to\vault\.obsidian\plugins\topology-keeper'` です。Windowsのバッチ用には、Git管理対象外の `env.local.bat` に `set "PLUGIN_DIR=..."` を記載できます。既存ローカル版への配置ではインストール済みIDの大文字・小文字を維持し、`data.json`と有効状態を引き継ぎます。公開用manifestは小文字のままです。ビルド・配置処理はステージやcommitをしません。
-
-## 作業時の確認
-
-ビルド後はObsidianでプラグインを再読み込みし、変更した画面・操作を確認します。JavaScriptの構文確認には`node --check`を使えます。エリア判定ロジックの変更では、平面・非平面・ホットスポットの境界条件も確認してください。
-
-エリア分析は約10秒の時間予算を超えた場合に中断し、前回の結果があれば対応するグラフと一緒に保持します。処理中のチェック地点で中断するため、厳密な実行時間上限ではありません。標準グラフの着色は非公開APIに依存し、利用できない場合は通知して終了します。
-
-manifestと配布物の形式は[Obsidian公式manifest仕様](https://docs.obsidian.md/Reference/Manifest)と[公開手順](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin)に合わせています。IDの重複・審査通過・最小対応バージョンの実機互換性は未確認です。ライセンスは既存のpackage設定に合わせたISCです。
+[ISC](LICENSE).
