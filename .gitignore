@@ -1,0 +1,7 @@
+node/
+node_modules/
+dist/
+env.local.bat
+data.json
+*.log
+.DS_Store

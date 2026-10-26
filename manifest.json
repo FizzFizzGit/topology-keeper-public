@@ -1,0 +1,9 @@
+{
+  "id": "topology-keeper",
+  "name": "Topology Keeper",
+  "version": "0.27.0",
+  "minAppVersion": "1.9.0",
+  "description": "Analyze links and tags, suggest tags, manage local external files, and inspect graph areas.",
+  "author": "fui",
+  "isDesktopOnly": true
+}

@@ -1,0 +1,18 @@
+# Keep application sources and project documentation stable across Windows and Unix.
+/main.js text eol=lf
+/src/** text eol=lf
+/README.md text eol=lf
+/manifest.json text eol=lf
+/styles.css text eol=lf
+/package.json text eol=lf
+/package-lock.json text eol=lf
+/build.mjs text eol=lf
+/build-once.mjs text eol=lf
+/esbuild-options.mjs text eol=lf
+/deploy.mjs text eol=lf
+
+# These scripts run from Windows command shells.
+/build.bat text eol=crlf
+/dev.bat text eol=crlf
+/env.bat text eol=crlf
+/setup.bat text eol=crlf
