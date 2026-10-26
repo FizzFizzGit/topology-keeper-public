@@ -1,4 +1,4 @@
-# 0.27.1 公開候補の確認
+# 0.27.2 公開候補の確認
 
 公開候補の確認記録。ソースは https://github.com/FizzFizzGit/topology-keeper-public で公開します。安定版の配布リリース・公式ディレクトリへの申請は未実施です。
 

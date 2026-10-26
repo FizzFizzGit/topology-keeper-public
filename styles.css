@@ -189,7 +189,7 @@
 .alp-win-mark svg { width: 17px; height: 17px; }
 .alp-win-body { height: auto; max-height: calc(88vh - 34px); overflow-y: auto; padding: 5px 8px 8px; }
 .alp-indicators { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 1px 0 7px; }
-.alp-indicator { min-width: 0; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; grid-template-rows: auto; column-gap: 5px; align-items: center; padding: 6px 7px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); background: var(--background-primary); }
+.alp-indicator { min-width: 0; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; grid-template-rows: auto; gap: 0 5px; align-items: center; padding: 6px 7px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); background: var(--background-primary); }
 .alp-indicator-icon { grid-row: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
 .alp-indicator-icon svg { width: 17px; height: 17px; }
 .alp-indicator-value { font-size: 16px; line-height: 1.1; font-weight: var(--font-semibold); font-variant-numeric: tabular-nums; }
@@ -202,7 +202,7 @@
 .alp-detail-open-icon { display: inline-flex; align-items: center; justify-content: center; }
 .alp-detail-open-icon svg { width: 17px; height: 17px; }
 .alp-main-actions { display: flex; align-items: center; gap: 5px; margin: 0 0 9px; }
-.alp-main-actions-row, .alp-main-actions-secondary { display: contents; }
+.alp-main-actions-row, .alp-main-actions-secondary { display: flex; flex: 1 1 0; min-width: 0; gap: 5px; }
 .alp-action-button { display: flex; flex: 1 1 0; min-width: 0; align-items: center; justify-content: center; padding: 6px 3px; }
 .alp-action-button > span:first-child { display: inline-flex; flex: 0 0 auto; }
 .alp-action-button svg { width: 15px; height: 15px; }
