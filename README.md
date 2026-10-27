@@ -98,18 +98,9 @@ Node.js 24 is used for development and testing. Install dependencies with `npm c
 | `npm test` | Run automated tests for analysis, positions, cleanup protection, external access, recovery, and deployment. |
 | `npm run check` | Check JavaScript syntax and manifest/version consistency. |
 | `npm run build` | Create a minified `main.js` without deployment or Git changes. |
-| `npm run dev` | Watch sources and rebuild with an inline source map, without deployment. |
 | `npm run package` | Validate, test, and build the three release files under the public repository’s `dist/<version>/`. No source snapshot is generated. |
-| `npm run deploy` | Copy the three plugin files to the directory specified by `PLUGIN_DIR`. Build first. |
 
-On Windows, `setup.bat` installs dependencies. `build.bat` builds once and deploys if `PLUGIN_DIR` is configured; `dev.bat` watches and deploys on each successful build when configured. Set the destination in an ignored `env.local.bat`, for example:
-
-```bat
-@echo off
-set "PLUGIN_DIR=C:\path\to\vault\.obsidian\plugins\topology-keeper"
-```
-
-Build and deployment scripts do not stage or commit files. Node binaries, dependencies, personal deployment settings, and vault data are excluded from the source distribution.
+Install Node.js and run `npm ci` to install build dependencies. The public repository includes source verification and release build scripts; local deployment and watch scripts are kept in the development repository. Build scripts do not stage, commit, or push files.
 
 Edit plugin code in `src/`; the root `main.js` is a generated bundle, and `styles.css` contains the plugin styles. The [Japanese documentation](README.ja.md) includes a module reference. Manual compatibility and UI checks are tracked in [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md), currently in Japanese.
 

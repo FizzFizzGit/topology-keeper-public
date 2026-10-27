@@ -97,21 +97,16 @@ Obsidianを終了し、Vaultの `.obsidian/plugins/topology-keeper/` に配布�
 - Obsidianの標準グラフ色設定を反映するとき、コアプラグインの`disable`／`enable`は呼びません。保存した色設定で新しいグラフビューを開きます。
 - コメントでは、データの入力元・形式と、返却・保存・書き込みの有無を明記します。推測した理由を事実として書かないようにします。
 
-## ビルド・配置
+## ソースの検証・ビルド
 
-Node.js 24を開発・テストに使用しています。クリーンなソースから `npm ci` で依存パッケージを取得してください。Windowsでは `setup.bat` も利用できます。ローカルに同梱したNodeを使う場合、`env.bat`がPATHを設定します。Node本体・依存パッケージ・個人用設定は公開ソースに含めません。
+Node.js 24を開発・テストに使用しています。Node.jsを導入し、`npm ci` で依存パッケージを取得してください。
 
 - `npm test`: 分析・位置保存・削除保護・外部アクセス・復旧の自動テスト。
 - `npm run check`: JavaScript構文、バージョンとmanifestの整合性確認。
 - `npm run build`: minifyした一回ビルド。Vault配置・Git操作は行いません。
-- `build.bat`: 一回ビルドし、`env.local.bat`等で`PLUGIN_DIR`が設定されていれば配置まで実行します。未設定ならビルドだけを行います。
-- `npm run dev`: inline source map付きwatchビルド。自動配置は行いません。
-- `dev.bat`: watchビルド。`PLUGIN_DIR`が設定されていれば保存のたびに配置します。終了はCtrl+Cです。
-- `npm run package`: チェック・テスト・ビルド後、`dist/topology-keeper/<version>/` に配布3ファイルを作成します。Git履歴やローカル設定を含まないソース一式も `dist/source/topology-keeper-<version>/` に出力します。
-- `esbuild-options.mjs`: 両ビルドで共用する基本設定。
-- `npm run deploy`: 環境変数`PLUGIN_DIR`で指定した場所へ配布3ファイルをコピーします。Vault側の`data.json`はコピーしません。配置前に `npm run build` を実行してください。
+- `npm run package`: チェック・テスト・ビルド後、公開用リポジトリ内の `dist/<version>/` に配布3ファイルを作成します。ソースコピーは生成しません。
 
-PowerShellでの配置先指定例は `$env:PLUGIN_DIR = 'C:\path\to\vault\.obsidian\plugins\topology-keeper'` です。Windowsのバッチ用には、Git管理対象外の `env.local.bat` に `set "PLUGIN_DIR=..."` を記載できます。既存ローカル版への配置ではインストール済みIDの大文字・小文字を維持し、`data.json`と有効状態を引き継ぎます。公開用manifestは小文字のままです。ビルド・配置処理はステージやcommitをしません。
+開発用バッチとローカル配置・監視用スクリプトは公開ソースに含めません。ビルド処理はステージ・コミット・プッシュを行いません。
 
 ## 作業時の確認
 
@@ -126,3 +121,5 @@ manifestと配布物の形式は[Obsidian公式manifest仕様](https://docs.obsi
 リスト行にマウスを重ねると、対象の名前を示すメニューが開き、対象行をハイライトします。外れると閉じます。「ファイル名の変更」「リンクをコピー」「リンクの削除」を選べます。ファイル名クリックは元ファイルを開く操作です。
 
 リンクファイル見出しのフォルダーアイコンでは、対象をチェックボックスで選び、移動先を指定し、確認後にまとめて移動できます。同名ファイルは上書きせず、途中の失敗では停止して完了件数を表示します。名前変更・移動時は同じ外部ファイルを参照する管理用メタノートも更新します。処理中はファイルを一時的にコピーするため空き容量が必要です。異常終了からの自動復旧や、他アプリの参照更新には対応していません。
+
+公開用リポジトリには開発用バッチ、ローカル配置・監視スクリプトを含めません。ソースからの確認・ビルドは Node.js を導入後、`npm ci`、`npm run package` で行えます。
