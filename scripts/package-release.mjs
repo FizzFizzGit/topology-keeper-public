@@ -1,20 +1,15 @@
-import { mkdirSync, copyFileSync, readFileSync, cpSync } from "node:fs";
+import { mkdirSync, copyFileSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-// ローカルで検証・ビルドした3ファイルだけを配布フォルダへコピーする。配置・Git操作はしない。
-execFileSync(process.execPath, ["scripts/check.mjs"], { stdio: "inherit" });
-execFileSync(process.execPath, ["--test", "tests/*.test.js"], { stdio: "inherit" });
-execFileSync(process.execPath, ["build-once.mjs"], { stdio: "inherit" });
-const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
-const output = path.join("dist", manifest.id, manifest.version);
+// 公開リポジトリ内で検証し、配布用3ファイルだけを作る。
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+for (const args of [["scripts/check.mjs"], ["--test", "tests/*.test.js"], ["build-once.mjs"]])
+  execFileSync(process.execPath, args, { cwd: root, stdio: "inherit" });
+const manifest = JSON.parse(readFileSync(path.join(root, "manifest.json"), "utf8"));
+const output = path.join(root, "dist", manifest.version);
 mkdirSync(output, { recursive: true });
-for (const file of ["main.js", "manifest.json", "styles.css"])
-  copyFileSync(file, path.join(output, file));
-console.log(`Release files: ${path.resolve(output)}`);
-const source = path.join("dist", "source", `${manifest.id}-${manifest.version}`);
-mkdirSync(source, { recursive: true });
-for (const directory of ["src", "tests", "scripts"]) cpSync(directory, path.join(source, directory), { recursive: true });
-for (const file of ["README.md", "README.ja.md", "LICENSE", "RELEASE-CHECKLIST.md", "manifest.json", "versions.json", "package.json", "package-lock.json", ".gitignore", ".gitattributes", "styles.css", "main.js", "esbuild-options.mjs", "build-once.mjs", "build.mjs", "deploy.mjs", "env.bat", "build.bat", "dev.bat", "setup.bat"])
-  copyFileSync(file, path.join(source, file));
-console.log(`Source snapshot (no Git history or local settings): ${path.resolve(source)}`);
+for (const name of ["main.js", "manifest.json", "styles.css"])
+  copyFileSync(path.join(root, name), path.join(output, name));
+console.log("Release files: " + output);

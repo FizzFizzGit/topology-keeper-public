@@ -15,7 +15,8 @@ This is an experimental release. Development and automated tests have been perfo
 - Associate external files with notes and create metadata notes, image thumbnails, and Bases.
 - List linked files and Bases, copy links, and remove associations.
 - Detect orphaned metadata notes, thumbnails, and Bases, with confirmation before deletion.
-- Remember the positions of the main window, detail window, and area graph.
+- Remember window positions and restore analysis and orphan windows that were open.
+- Rename external files and move selected linked files to another folder, updating metadata references.
 - Recover links and Base membership after an interrupted external-file import.
 
 ## Installation
@@ -39,9 +40,9 @@ Local deployment scripts preserve an existing installation's ID capitalization a
 
 ### Explore note structure
 
-Open the main window and select the detail window to view maintenance results and area analysis. Use **再チェック** (Recheck) to refresh the results. Open an area's graph to inspect its nodes; drag nodes to adjust their layout, use the mouse wheel or zoom buttons, and click a note to open it in a tab. Resize the graph using its bottom-right handle.
+Use the **孤立** (Orphans) and **エリア候補** (Area candidates) indicators in the main window to open their separate windows. Area candidates include planar areas. Each area starts collapsed; its graph button remains visible. Use **再チェック** (Recheck) to refresh the results. Open an area's graph to inspect its nodes; drag nodes to adjust their layout, use the mouse wheel or zoom buttons, and click a note to open it in a tab. Resize the graph using its bottom-right handle.
 
-Drag a window's title bar to move it. Positions are saved for the next session. The main and detail windows have position reset buttons; the settings page and the **小窓・詳細窓の位置をリセット** command reset both windows.
+Drag a window's title bar to move it. Positions are saved for the next session. The main, analysis, and orphan windows have position reset buttons; the settings page and the **小窓・詳細窓の位置をリセット** command reset these windows.
 
 ### Suggest tags
 
@@ -51,7 +52,9 @@ Open a regular Markdown note and run **タグを提案（既存タグから）**
 
 With a regular Markdown note active, run **外部ファイルを追加（メタノート作成）**, choose local files, and provide a Base name when prompted. Files already inside the vault are linked directly. External files remain in their original locations; the plugin creates metadata notes, thumbnails for supported images, and a Base inside the vault.
 
-Imported Bases show metadata notes belonging to the import group. Standalone Bases filter by selected tags using AND conditions; selecting no tags leaves the Base unfiltered. Files and Bases associated with the active note appear in the main window, where you can open them, copy links, or remove associations.
+Imported Bases show metadata notes belonging to the import group. Standalone Bases filter by selected tags using AND conditions; selecting no tags leaves the Base unfiltered. Files and Bases associated with the active note appear in the main window. Click a name to open it. Hover over a row to show its menu; it displays the target name and highlights the row. The menu closes when the pointer leaves. It offers renaming for external files, copying links, and removing associations.
+
+Use the folder icon beside the linked-file heading to select files with checkboxes, choose a destination folder, and review the move before starting. Existing destination files are never overwritten. If a move fails partway through, processing stops and the completed count is shown. Renaming and moving update matching managed metadata references. These operations temporarily copy each file before removing the original; allow space for the copy. They do not provide crash recovery, and references in other applications are not updated.
 
 ### Recover an interrupted import
 
@@ -96,7 +99,7 @@ Node.js 24 is used for development and testing. Install dependencies with `npm c
 | `npm run check` | Check JavaScript syntax and manifest/version consistency. |
 | `npm run build` | Create a minified `main.js` without deployment or Git changes. |
 | `npm run dev` | Watch sources and rebuild with an inline source map, without deployment. |
-| `npm run package` | Validate, test, and build release files and a source snapshot under `dist/`. |
+| `npm run package` | Validate, test, and build the three release files under the public repository’s `dist/<version>/`. No source snapshot is generated. |
 | `npm run deploy` | Copy the three plugin files to the directory specified by `PLUGIN_DIR`. Build first. |
 
 On Windows, `setup.bat` installs dependencies. `build.bat` builds once and deploys if `PLUGIN_DIR` is configured; `dev.bat` watches and deploys on each successful build when configured. Set the destination in an ignored `env.local.bat`, for example:

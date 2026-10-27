@@ -59,13 +59,6 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
         }));
     }
     new Setting(containerEl)
-      .setName("画像メタノートを開くと元画像も開く")
-      .setDesc("既定はオフです。有効にするとノートのsourceが指すローカル画像をOSの既定アプリで開きます。信頼できるノートだけで使用してください。")
-      .addToggle(toggle => toggle.setValue(this.plugin.state.autoOpenExternalImages).onChange(async value => {
-        this.plugin.state.autoOpenExternalImages = value;
-        await this.plugin.saveData(this.plugin.state);
-      }));
-    new Setting(containerEl)
       .setName("外部画像を埋め込み表示")
       .setDesc("既定はオフです。有効にするとメタノートのsourceが指すローカル画像を読み込みます。信頼できるVaultで使用し、変更後は対象ノートを開き直してください。")
       .addToggle(toggle => toggle.setValue(this.plugin.state.enableExternalImageEmbeds).onChange(async value => {
@@ -183,7 +176,7 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("設定を初期値に戻す")
       .setDesc(
-        "管理フォルダ、グラフ分類色、タグ提案のストップワード、外部画像の表示・自動オープンを初期値に戻します。既存ファイルは移動・削除されません。",
+        "管理フォルダ、グラフ分類色、タグ提案のストップワード、外部画像の表示を初期値に戻します。既存ファイルは移動・削除されません。",
       )
       .addButton((button) =>
         button

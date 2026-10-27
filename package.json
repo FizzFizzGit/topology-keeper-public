@@ -1,15 +1,8 @@
 {
   "name": "topology-keeper",
-  "version": "0.27.2",
+  "version": "0.28.0",
   "description": "Obsidian plugin for link and tag analysis and local external-file management",
   "private": true,
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/FizzFizzGit/topology-keeper-public.git"
-  },
-  "bugs": {
-    "url": "https://github.com/FizzFizzGit/topology-keeper-public/issues"
-  },
   "main": "main.js",
   "scripts": {
     "test": "node --test tests/*.test.js",
@@ -25,5 +18,12 @@
   "type": "commonjs",
   "devDependencies": {
     "esbuild": "^0.28.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FizzFizzGit/topology-keeper-public.git"
+  },
+  "bugs": {
+    "url": "https://github.com/FizzFizzGit/topology-keeper-public/issues"
   }
 }

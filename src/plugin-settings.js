@@ -134,12 +134,14 @@ function loadSettings(saved) {
     graphNonPlanarColor:
       saved.graphNonPlanarColor ?? CONFIG.graphNonPlanarColor,
     tagStopWords: normalizeTagStopWords(saved.tagStopWords),
-    autoOpenExternalImages: saved.autoOpenExternalImages === true,
     enableExternalImageEmbeds: saved.enableExternalImageEmbeds === true,
     visible: saved.visible ?? saved.maintVisible ?? true,
     collapsed: saved.maintCollapsed ?? false, // 旧 collapsed は links パネルの状態なので引き継がない
     pos: normalizeWindowPosition(saved.pos ?? saved.maintPos),
     detailPos: normalizeWindowPosition(saved.detailPos),
+    areaWindowVisible: saved.areaWindowVisible === true,
+    orphanWindowVisible: saved.orphanWindowVisible === true,
+    orphanPos: normalizeWindowPosition(saved.orphanPos),
     graphPos: normalizeWindowPosition(saved.graphPos),
     pendingImport: saved.pendingImport && typeof saved.pendingImport.mainNotePath === "string" && Array.isArray(saved.pendingImport.paths)
       ? { ...saved.pendingImport, paths: [...new Set(saved.pendingImport.paths.filter(value => typeof value === "string"))] }
@@ -180,7 +182,6 @@ function resetUserSettings(state) {
   state.clusterHighlightColor = CONFIG.clusterHighlightColor;
   state.graphNonPlanarColor = CONFIG.graphNonPlanarColor;
   state.tagStopWords = [...DEFAULT_TAG_STOP_WORDS];
-  state.autoOpenExternalImages = false;
   state.enableExternalImageEmbeds = false;
 }
 

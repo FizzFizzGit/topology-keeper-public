@@ -29,10 +29,7 @@ test('file URLs round-trip spaces, Unicode, percent signs and punctuation', () =
   for (const source of ['https://example.com/a.png', 'file://server/share/a.png', 'relative.png', 'file:///bad%XX.png', 'file:///a.png#x', 'file:///a.png?x', 'file:///%00.png'])
     assert.equal(pathFromSource(source), '', source);
 });
-test('automatic external image opening defaults off, explicit true survives reload', () => {
-  assert.equal(loadSettings({}).autoOpenExternalImages, false);
-  assert.equal(loadSettings({ autoOpenExternalImages: 'true' }).autoOpenExternalImages, false);
-  assert.equal(loadSettings({ autoOpenExternalImages: true }).autoOpenExternalImages, true);
+test('external image embeds default off and require explicit true', () => {
   assert.equal(loadSettings({}).enableExternalImageEmbeds, false);
 });
 test('external file opening rejects URLs, executables and directories', async () => {
@@ -51,8 +48,6 @@ test('external file opening rejects URLs, executables and directories', async ()
   assert.equal(opened, 0);
   regular = true;
   await actions.openExternal(toSourceUrl(path.resolve('document.pdf')));
-  assert.equal(opened, 1);
-  await actions.openMetaSource({}); // Default off must not access metadata or OS.
   assert.equal(opened, 1);
 });
 test('image reads reject directories and oversized files', async () => {
@@ -230,4 +225,102 @@ test('import recovery keeps journal on failure and clears it only after successf
   failSave = false;
   await workflow.recover();
   assert.equal(plugin.state.pendingImport, undefined);
+});
+
+test('external rename updates shared references, refuses collisions and restores failed updates', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'topology-rename-'));
+  try {
+    const original = path.join(directory, 'a b.txt');
+    const renamed = path.join(directory, 'ab.txt');
+    fs.writeFileSync(original, 'content');
+    const files = [new TFile('meta/a.md'), new TFile('meta/b.md')];
+    const metadata = new Map(files.map(file => [file, { source: toSourceUrl(original) }]));
+    let fail = false;
+    const app = {
+      vault: { getMarkdownFiles: () => files },
+      metadataCache: { getFileCache: file => ({ frontmatter: metadata.get(file) }) },
+      fileManager: { processFrontMatter: async (file, change) => {
+        if (fail && file === files[1]) { fail = false; throw new Error('write failed'); }
+        change(metadata.get(file));
+      } },
+    };
+    const Actions = load('external-file-actions', { obsidian });
+    const actions = new Actions(app, { FOLDERS: { meta: 'meta' } });
+    const entry = { file: files[0], source: toSourceUrl(original) };
+    fs.writeFileSync(renamed, 'existing');
+    await assert.rejects(actions.renameExternal(entry, 'ab.txt'), /同名/);
+    assert.equal(fs.readFileSync(renamed, 'utf8'), 'existing');
+    fs.unlinkSync(renamed);
+    fail = true;
+    await assert.rejects(actions.renameExternal(entry, 'ab.txt'), /write failed/);
+    assert.equal(fs.existsSync(original), true);
+    assert.equal(fs.existsSync(renamed), false);
+    assert.equal(metadata.get(files[0]).source, entry.source);
+    await assert.rejects(actions.renameExternal(entry, '../escape.txt'), /使用できない/);
+    await actions.renameExternal(entry, 'ab.txt');
+    assert.equal(fs.existsSync(original), false);
+    assert.equal(fs.readFileSync(renamed, 'utf8'), 'content');
+    for (const file of files) assert.equal(metadata.get(file).source, toSourceUrl(renamed));
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('bulk move checks all collisions before starting and updates references across folders', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'topology-move-'));
+  try {
+    const destination = path.join(directory, 'destination');
+    fs.mkdirSync(destination);
+    const originals = ['first.txt', 'second.txt'].map(name => path.join(directory, name));
+    originals.forEach((filename, index) => fs.writeFileSync(filename, String(index)));
+    const files = originals.map((_, index) => new TFile('meta/' + index + '.md'));
+    const metadata = new Map(files.map((file, index) => [file, { source: toSourceUrl(originals[index]) }]));
+    const app = {
+      vault: { getMarkdownFiles: () => files },
+      metadataCache: { getFileCache: file => ({ frontmatter: metadata.get(file) }) },
+      fileManager: { processFrontMatter: async (file, callback) => callback(metadata.get(file)) },
+    };
+    const Actions = load('external-file-actions', { obsidian });
+    const actions = new Actions(app, { FOLDERS: { meta: 'meta' } });
+    const entries = files.map((file, index) => ({ file, source: toSourceUrl(originals[index]) }));
+    const collision = path.join(destination, 'second.txt');
+    fs.writeFileSync(collision, 'existing');
+    await assert.rejects(actions.moveExternalFiles(entries, destination), /同名/);
+    originals.forEach(filename => assert.equal(fs.existsSync(filename), true));
+    assert.equal(fs.existsSync(path.join(destination, 'first.txt')), false);
+    assert.equal(fs.readFileSync(collision, 'utf8'), 'existing');
+    fs.unlinkSync(collision);
+    const completed = await actions.moveExternalFiles([...entries, entries[0]], destination);
+    assert.equal(completed.length, 2);
+    originals.forEach((filename, index) => {
+      assert.equal(fs.existsSync(filename), false);
+      const target = path.join(destination, path.basename(filename));
+      assert.equal(fs.readFileSync(target, 'utf8'), String(index));
+      assert.equal(metadata.get(files[index]).source, toSourceUrl(target));
+    });
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('bulk move reports completed files and stops on the first failure', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'topology-move-stop-'));
+  try {
+    const destination = path.join(directory, 'destination');
+    fs.mkdirSync(destination);
+    const entries = ['a', 'b', 'c'].map(name => {
+      const filename = path.join(directory, name + '.txt');
+      fs.writeFileSync(filename, name);
+      return { source: toSourceUrl(filename) };
+    });
+    const Actions = load('external-file-actions', { obsidian });
+    const actions = new Actions({}, {});
+    const visited = [];
+    actions.relocateExternal = async entry => {
+      visited.push(entry.source);
+      if (visited.length === 2) throw new Error('failed');
+    };
+    await assert.rejects(actions.moveExternalFiles(entries, destination), error => {
+      assert.deepEqual(Array.from(error.completed), [entries[0].source]);
+      return true;
+    });
+    assert.deepEqual(visited, entries.slice(0, 2).map(entry => entry.source));
+    assert.equal(actions.moving, false);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });

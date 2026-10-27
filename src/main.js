@@ -124,10 +124,10 @@ module.exports = class AssetLinksPanel extends Plugin {
           section: this.mainView.section.bind(this.mainView),
           iconButton: this.mainView.iconButton.bind(this.mainView),
         }),
-      openDetail: () => this.detailView.open(),
-      closeDetail: () => this.detailView.close(),
-      isDetailVisible: () => this.detailView.visible,
-      renderDetail: () => this.detailView.render(),
+      openDetail: (kind) => (kind === "orphan" ? this.orphanView : this.detailView).open(),
+      closeDetail: (kind) => (kind === "orphan" ? this.orphanView : this.detailView).close(),
+      isDetailVisible: (kind) => kind === "orphan" ? this.orphanView.visible : kind === "planar" ? this.detailView.visible : this.detailView.visible || this.orphanView.visible,
+      renderDetail: () => { this.detailView.render(); this.orphanView.render(); },
       getDetailWindow: () => this.detailView.el,
       setDetailPosition: (position) => {
         this.state.detailPos = position;
@@ -135,6 +135,7 @@ module.exports = class AssetLinksPanel extends Plugin {
       openLink: (id) => this.app.workspace.openLinkText(id, "", "tab"),
     });
     this.detailView = new DetailWindowView({
+      setWindowVisible: (visible) => { this.state.areaWindowVisible = visible; },
       getDetailPosition: () => this.state.detailPos,
       saveState: () => this.saveData(this.state),
       getMainWindow: () => this.mainView.el,
@@ -177,6 +178,13 @@ module.exports = class AssetLinksPanel extends Plugin {
       ICON,
       maxFindings: CONFIG.maxFindings,
     });
+
+    this.orphanView = new DetailWindowView({
+      ...this.detailView.api,
+      setWindowVisible: (visible) => { this.state.orphanWindowVisible = visible; },
+      getDetailPosition: () => this.state.orphanPos,
+      setDetailPosition: (position) => { this.state.orphanPos = position; },
+    }, "orphan");
 
     this.refreshWin = debounce(
       () => {
@@ -248,6 +256,7 @@ module.exports = class AssetLinksPanel extends Plugin {
       debounce(() => {
         this.mainView.constrainToViewport();
         this.detailView.constrainToViewport();
+        this.orphanView.constrainToViewport();
       }, 50),
     );
   }
@@ -277,15 +286,10 @@ module.exports = class AssetLinksPanel extends Plugin {
     this.app.workspace.onLayoutReady(() => {
       this.updateCurrent();
       this.mainView.build();
+      if (this.state.areaWindowVisible) this.detailView.open();
+      if (this.state.orphanWindowVisible) this.orphanView.open();
       this.refreshBaseLabels();
       this.scheduleMaint();
-      // 起動後に開いたメタノートでは、Source の実ファイルも既定アプリで開く。
-      this.registerEvent(
-        this.app.workspace.on("file-open", (file) => {
-          if (!(file instanceof TFile) || !inFolder(file, FOLDERS.meta)) return;
-          this.externalFileActions.openMetaSource(file);
-        }),
-      );
     });
   }
 
@@ -339,6 +343,7 @@ module.exports = class AssetLinksPanel extends Plugin {
   async resetWindowPositions() {
     this.mainView.resetPosition();
     this.detailView.resetPosition();
+    this.orphanView.resetPosition();
     await this.saveData(this.state);
   }
 
@@ -349,6 +354,7 @@ module.exports = class AssetLinksPanel extends Plugin {
     this.removeInfoPopovers();
     this.mainView.dispose();
     this.detailView.dispose();
+    this.orphanView.dispose();
     this.externalImages.dispose(); // キャッシュした画像の Blob URL を解放する
   }
 

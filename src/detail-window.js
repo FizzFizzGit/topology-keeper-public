@@ -10,7 +10,10 @@ const { HOTSPOT_DENSITY_THRESHOLD } = require("./graph-analysis");
 // 【出力】DOM のみを更新する。ウィンドウ位置は api.setDetailPosition に渡し、
 //   ドラッグ後の保存は api.enableDrag に委譲する。Vault の内容は変更しない。
 class DetailWindowView {
-  constructor(api) {
+  constructor(api, kind = "planar") {
+    this.kind = kind;
+    this.infoOwner = `detail-${kind}`;
+    this.expandedAreas = new Set();
     this.api = api;
     this.CSS_CLASS = api.CSS_CLASS;
     this.UI_TEXT = api.UI_TEXT;
@@ -23,9 +26,12 @@ class DetailWindowView {
 
   open() {
     this.visible = true;
+    this.api.setWindowVisible?.(true);
     this.api.updateDetailButton();
     if (!this.el) {
       this.el = document.body.createDiv({ cls: this.CSS_CLASS.alpDetailWin });
+      this.el.dataset.infoOwner = this.infoOwner;
+      this.el.setWindowPosition = (position) => this.api.setDetailPosition(position);
     }
 
     const position = this.api.getDetailPosition();
@@ -40,6 +46,7 @@ class DetailWindowView {
     this.el.classList.remove(this.CSS_CLASS.isHidden);
     this.render();
     this.constrainToViewport();
+    this.api.saveState?.();
   }
 
   placeAtDefaultPosition() {
@@ -65,14 +72,17 @@ class DetailWindowView {
 
   close() {
     this.visible = false;
+    this.api.setWindowVisible?.(false);
+    this.api.saveState?.();
     this.api.updateDetailButton();
-    this.api.disposeGraphListeners();
-    this.api.removeInfoPopovers("detail");
+    if (this.kind === "planar") this.api.disposeGraphListeners();
+    this.api.removeInfoPopovers(this.infoOwner);
     this.el?.addClass(this.CSS_CLASS.isHidden);
   }
 
   dispose() {
     this.visible = false;
+    this.api.removeInfoPopovers(this.infoOwner);
     this.el?.remove();
     this.el = null;
   }
@@ -102,8 +112,8 @@ class DetailWindowView {
     if (!el || !this.visible) return;
     const r = api.getResult();
     const scrollTop = el.querySelector(".alp-detail-body")?.scrollTop ?? 0;
-    api.disposeGraphListeners();
-    api.removeInfoPopovers("detail");
+    if (this.kind === "planar") api.disposeGraphListeners();
+    api.removeInfoPopovers(this.infoOwner);
     el.empty();
 
     const head = el.createDiv({ cls: "alp-detail-head" });
@@ -111,16 +121,16 @@ class DetailWindowView {
     setIcon(mark, this.ICON.chart);
     head.createSpan({
       cls: "alp-detail-title",
-      text: "構造分析・メンテナンス詳細",
+      text: this.kind === "orphan" ? "孤立" : "分析結果",
     });
     api.iconButton(head, "refresh-cw", "再チェック", () =>
       api.runMaint(true, true),
     );
-    api.iconButton(head, "locate-fixed", "詳細窓の位置をリセット", () => {
+    api.iconButton(head, "locate-fixed", "ウィンドウの位置をリセット", () => {
       this.resetPosition();
       api.saveState();
     });
-    api.iconButton(head, "x", "詳細ウィンドウを閉じる", () =>
+    api.iconButton(head, "x", "ウィンドウを閉じる", () =>
       this.close(),
     );
     api.enableDrag(el, head);
@@ -129,8 +139,8 @@ class DetailWindowView {
     if (r) {
       const orphanCount =
         r.orphans.length + r.strayThumbs.length + r.orphanBases.length;
-      this.renderOrphans(body, r, orphanCount);
-      this.renderPlanar(body, r);
+      if (this.kind === "orphan") this.renderOrphans(body, r, orphanCount);
+      else this.renderPlanar(body, r);
     } else {
       body.createDiv({
         cls: this.CSS_CLASS.alpEmpty,
@@ -217,19 +227,39 @@ class DetailWindowView {
     }
   }
 
+  createAreaRow(parent, item, kind, index, color) {
+    const key = JSON.stringify([kind, [...item.nodes].sort()]);
+    const container = parent.createDiv({ cls: "alp-finding is-" + kind });
+    container.style.setProperty("--alp-area-color", color);
+    const row = container.createEl("details", { cls: "alp-finding-details" });
+    row.open = this.expandedAreas.has(key);
+    const header = row.createEl("summary", { cls: "alp-finding-head" });
+    header.createSpan({ cls: "alp-finding-title", text: "エリア " + (index + 1) + " · " + item.nodes.length + "頂点" });
+    row.addEventListener("toggle", () => {
+      if (row.open) this.expandedAreas.add(key);
+      else this.expandedAreas.delete(key);
+      this.api.fitWindowToContent(this.el);
+      this.constrainToViewport();
+    });
+    this.renderFindingActions(container, item);
+    return row;
+  }
+
   renderFindingActions(row, item) {
     const api = this.api;
-    const actions = row.createDiv({ cls: "alp-finding-actions" });
+    const actions = row.createSpan({ cls: "alp-finding-actions" });
     const detail = actions.createEl("button", {
       cls: "alp-partial-graph-button",
       attr: {
+        type: "button",
         "aria-label": "このエリアの部分グラフを表示",
       },
     });
     setIcon(detail, this.ICON.network);
-    detail.createSpan({ text: "部分グラフ" });
     setTooltip(detail, "部分グラフを表示");
-    detail.addEventListener(this.EVENT.click, () => {
+    detail.addEventListener(this.EVENT.click, (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       api.setSelectedCluster({
         nodes: [...item.nodes],
         links: item.links ?? [],
@@ -245,15 +275,16 @@ class DetailWindowView {
     const sec = api.section(
       body,
       "planar",
-      "エリア分析",
+      "エリア候補",
     );
-    const graphButton = sec.parentElement.createEl("button", {
+    const graphButton = sec.sectionActions.createEl("button", {
       cls: "clickable-icon alp-graph-icon-button alp-planar-graph-button",
       attr: {
         title: "標準グラフを開いて分類ごとに色分け",
         "aria-label": "標準グラフを開いて平面・ホットスポット・非平面を色分け",
       },
     });
+    sec.sectionActions.insertBefore(graphButton, sec.sectionActions.querySelector(".alp-info-wrap"));
     setIcon(graphButton, this.ICON.fork);
     graphButton.addEventListener(this.EVENT.click, (event) => {
       event.preventDefault();
@@ -303,14 +334,7 @@ class DetailWindowView {
         text: `${label}　${areas.length}エリア`,
       });
       areas.slice(0, 30).forEach((item, index) => {
-        const row = sec.createDiv({ cls: `alp-finding is-${kind}` });
-        row.style.setProperty("--alp-area-color", areaColors[kind]);
-        const header = row.createDiv({ cls: "alp-finding-head" });
-        header.createDiv({
-          cls: "alp-finding-title",
-          text: `エリア ${index + 1}`,
-        });
-        this.renderFindingActions(header, item);
+        const row = this.createAreaRow(sec, item, kind, index, areaColors[kind]);
         const reason = kind === "nonplanar"
           ? item.edgeBoundExceeded
             ? `辺数 ${item.edges} > 3V−6`
@@ -348,14 +372,7 @@ class DetailWindowView {
         text: `平面性未判定の領域を密度で分けています。境界候補 ${p.boundaryEdges.length}本 ・ 平均変化度 ${(p.meanDensityChange * 100).toFixed(1)}%。`,
       });
       p.hotspots.slice(0, 30).forEach((item, index) => {
-        const row = sec.createDiv({ cls: "alp-finding is-hotspot" });
-        row.style.setProperty("--alp-area-color", areaColors.hotspot);
-        const header = row.createDiv({ cls: "alp-finding-head" });
-        header.createDiv({
-          cls: "alp-finding-title",
-          text: `エリア ${index + 1}`,
-        });
-        this.renderFindingActions(header, item);
+        const row = this.createAreaRow(sec, item, "hotspot", index, areaColors.hotspot);
         row.createDiv({
           cls: this.CSS_CLASS.alpSmall,
           text: `${item.nodes.length}頂点 ・ 密度 ${(item.density * 100).toFixed(1)}% ・ 平均近傍密度 ${(item.meanLocalDensity * 100).toFixed(1)}%`,

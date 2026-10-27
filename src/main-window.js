@@ -15,8 +15,7 @@ class MainWindowView {
     this.UI_TEXT = api.UI_TEXT;
     this.el = null;
     this.sig = "";
-    this.detailButton = null;
-    this.detailButtonIcon = null;
+    this.indicatorButtons = {};
   }
 
   build() {
@@ -47,13 +46,11 @@ class MainWindowView {
   }
 
   updateDetailButton() {
-    if (!this.detailButton) return;
-    const visible = this.api.isDetailVisible();
-    const label = visible ? this.UI_TEXT.detailClose : this.UI_TEXT.detailOpen;
-    this.detailButton.setAttr("title", label);
-    this.detailButton.setAttr("aria-label", label);
-    this.detailButton.setAttr("aria-expanded", String(visible));
-    setIcon(this.detailButtonIcon, visible ? "x" : this.ICON.chart);
+    for (const [kind, button] of Object.entries(this.indicatorButtons)) {
+      const visible = this.api.isDetailVisible(kind);
+      button.setAttr("aria-expanded", String(visible));
+      button.setAttr("aria-label", (kind === "orphan" ? "孤立" : "分析結果") + "ウィンドウを" + (visible ? "閉じる" : "開く"));
+    }
   }
 
   constrainToViewport() {
@@ -98,7 +95,7 @@ class MainWindowView {
       bases:
         "現在のノートのリンクに登録されているBaseファイルです。\n\nBaseを開く、リンクをコピーする、ノートからリンクを外す操作ができます。リンクを外してもBaseファイル自体は削除されません。",
       assets:
-        "現在のノートのリンクに登録されている関連ファイルです。\n\nメタノートを開く、リンクをコピーする、ノートからリンクを外す操作ができます。画像などの外部ファイルは元の場所で開きます。",
+        "現在のノートのリンクに登録されている関連ファイルです。\n\n外部ファイルは名前をクリックすると元ファイルを開きます。各行にマウスを重ねると表示されるメニューから、ファイル名の変更、リンクをコピー、リンクの削除を選べます。見出しのフォルダーアイコンでは、対象を選択して別のフォルダーへまとめて移動できます。リンクを外しても元ファイルは削除されません。",
     };
     const sectionRow = parent.createDiv({ cls: "alp-sec-row" });
     const det = sectionRow.createEl("details", { cls: "alp-sec" });
@@ -106,19 +103,20 @@ class MainWindowView {
     det.open = this.state.sections[key];
     const summary = det.createEl("summary", { cls: "alp-sec-summary" });
     summary.createSpan({ cls: "alp-sec-title", text: title });
-    const info = sectionRow.createDiv({ cls: "alp-info-wrap" });
-    const infoButton = info.createSpan({
+    const actions = sectionRow.createSpan({ cls: "alp-section-actions" });
+    det.sectionActions = actions;
+    const info = actions.createSpan({ cls: "alp-info-wrap" });
+    const infoButton = info.createEl("button", {
       cls: "alp-info-button",
       text: "i",
       attr: {
-        role: "button",
-        tabindex: "0",
+        type: "button",
         "aria-label": `${title}の説明`,
         "aria-expanded": "false",
       },
     });
     const tip = document.body.createDiv({ cls: "alp-info-popover" });
-    tip.dataset.owner = sectionRow.closest(".alp-detail-win") ? "detail" : "main";
+    tip.dataset.owner = sectionRow.closest(".alp-detail-win")?.dataset.infoOwner ?? "main";
     if (key === "planar") {
       tip.createEl("p", {
         text: "このチェックはグラフ構造の特徴を示すもので、分類の正誤を直接判定しません。",
@@ -168,6 +166,11 @@ class MainWindowView {
     infoButton.addEventListener("mouseleave", hideTip);
     infoButton.addEventListener("focus", showTip);
     infoButton.addEventListener("blur", hideTip);
+    infoButton.addEventListener(this.EVENT.click, (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      showTip();
+    });
     tip.addEventListener("mouseenter", () => clearTimeout(closeTimer));
     tip.addEventListener("mouseleave", hideTip);
     infoButton.addEventListener(this.EVENT.keydown, (event) => {
@@ -185,9 +188,7 @@ class MainWindowView {
       if (this.state.sections[key] === det.open) return;
       this.state.sections[key] = det.open;
       this.api.saveState();
-      const owner = det.closest(".alp-detail-win")
-        ? this.api.getDetailWindow()
-        : this.el;
+      const owner = det.closest(".alp-detail-win") ?? this.el;
       this.fitWindowToContent(owner);
     });
     return det;
@@ -249,7 +250,7 @@ class MainWindowView {
       ? r.orphans.length + r.strayThumbs.length + r.orphanBases.length
       : null;
     const crossingCount = r?.planar
-      ? r.planar.definite.length + r.planar.hotspots.length
+      ? r.planar.safe.length + r.planar.definite.length + r.planar.hotspots.length
       : null;
     el.toggleClass("has-issues", (orphanCount ?? 0) > 0);
 
@@ -268,7 +269,7 @@ class MainWindowView {
 
     const body = el.createDiv({ cls: "alp-win-body" });
     const indicators = body.createDiv({ cls: "alp-indicators" });
-    const orphan = indicators.createDiv({
+    const orphan = indicators.createEl("button", {
       cls: `alp-indicator alp-indicator-orphan${(orphanCount ?? 0) > 0 ? " is-alert" : ""}`,
     });
     const orphanIcon = orphan.createDiv({ cls: "alp-indicator-icon" });
@@ -280,7 +281,7 @@ class MainWindowView {
     orphan.createDiv({ cls: "alp-indicator-label", text: this.UI_TEXT.orphan });
     orphan.setAttr("title", "孤立した管理対象ファイルの件数");
 
-    const crossing = indicators.createDiv({
+    const crossing = indicators.createEl("button", {
       cls: "alp-indicator alp-indicator-crossing",
     });
     const crossingIcon = crossing.createDiv({ cls: "alp-indicator-icon" });
@@ -295,26 +296,21 @@ class MainWindowView {
     });
     crossing.setAttr(
       "title",
-      "非平面とホットスポットの数。詳しい根拠はエリア分析で確認できます。",
+      "平面・非平面・ホットスポットのエリア数。詳しい根拠は分析結果で確認できます。",
     );
 
-    const actions = body.createDiv({ cls: "alp-main-actions" });
-    const primaryActions = actions.createDiv({ cls: "alp-main-actions-row" });
-    const detailButton = primaryActions.createEl("button", {
-      cls: "alp-action-button alp-detail-open",
-      attr: { title: this.UI_TEXT.detailOpen, "aria-expanded": "false" },
-    });
-    this.detailButton = detailButton;
-    this.detailButtonIcon = detailButton.createSpan({
-      cls: "alp-detail-open-icon",
-    });
+    this.indicatorButtons = { orphan, planar: crossing };
+    for (const [kind, button] of Object.entries(this.indicatorButtons)) {
+      button.setAttr("type", "button");
+      button.addEventListener(this.EVENT.click, () => {
+        if (this.api.isDetailVisible(kind)) this.api.closeDetail(kind);
+        else this.api.openDetail(kind);
+      });
+    }
     this.updateDetailButton();
-    detailButton.addEventListener(this.EVENT.click, () => {
-      if (this.api.isDetailVisible()) this.api.closeDetail();
-      else this.api.openDetail();
-    });
+    const actions = body.createDiv({ cls: "alp-main-actions" });
 
-    const add = primaryActions.createEl("button", {
+    const add = actions.createEl("button", {
       cls: this.CSS_CLASS.alpActionButton,
       attr: { title: "ファイル追加" },
     });
@@ -333,10 +329,7 @@ class MainWindowView {
       if (this.api.isMainNote(file)) this.api.importFiles(file);
     });
 
-    const secondaryActions = actions.createDiv({
-      cls: "alp-main-actions-secondary",
-    });
-    const suggest = secondaryActions.createEl("button", {
+    const suggest = actions.createEl("button", {
       cls: this.CSS_CLASS.alpActionButton,
       attr: { title: "タグを提案" },
     });
@@ -353,7 +346,7 @@ class MainWindowView {
       if (this.api.isMainNote(file)) this.api.suggestTags(file);
     });
 
-    const createBase = secondaryActions.createEl("button", {
+    const createBase = actions.createEl("button", {
       cls: this.CSS_CLASS.alpActionButton,
       attr: { title: "Baseを作成" },
     });
@@ -453,7 +446,7 @@ class MainWindowView {
           y: parseFloat(el.style.top),
         };
         if (el.classList.contains(this.CSS_CLASS.alpDetailWin))
-          this.api.setDetailPosition(position);
+          (el.setWindowPosition ?? this.api.setDetailPosition)(position);
         else this.state.pos = position;
         await this.api.saveState();
       };

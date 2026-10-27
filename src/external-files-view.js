@@ -15,6 +15,26 @@
 //     名前のクリック            → ノートを開く（asset は元ファイルを既定アプリで開く: plugin.externalFileActions.openExternal(entry.source)）
 //     「リンクを外す」（x）      → plugin.externalFileActions.removeLink(ext.file, entry)。ext.file の frontmatter.links から entry.raw を取り除く
 //     コピー                    → plugin.copyInternalLink(entry.file)（"[[<Vault相対パス>]]" をクリップボードへ）
+const { setIcon, setTooltip } = require("obsidian");
+const { attachHoverMenu } = require("./hover-menu");
+
+function createEditMenu(plugin, row, entry, mainFile) {
+  row.setAttr("tabindex", "0");
+  row.setAttr("role", "group");
+  row.setAttr("aria-label", entry.label);
+  row.setAttr("aria-haspopup", "menu");
+  row.setAttr("aria-expanded", "false");
+  const items = [];
+  if (entry.kind === "asset" && entry.source) {
+    items.push({ title: "ファイル名の変更", icon: "pencil", action: () => plugin.externalFileActions.showRename(entry) });
+  }
+  if (entry.file) {
+    items.push({ title: "リンクをコピー", icon: "copy", action: () => plugin.copyInternalLink(entry.file) });
+  }
+  items.push({ title: "リンクの削除", icon: "unlink", action: () => plugin.externalFileActions.removeLink(mainFile, entry) });
+  attachHoverMenu(row, row, items, entry.label);
+}
+
 function renderExternalFiles(plugin, manager, ext, { CSS_CLASS, EVENT, section, iconButton }) {
     if (!ext) {
       const note = manager.createDiv({ cls: CSS_CLASS.alpEmpty });
@@ -33,19 +53,10 @@ function renderExternalFiles(plugin, manager, ext, { CSS_CLASS, EVENT, section, 
           cls: "alp-name is-link",
           text: entry.label,
         });
-        name.setAttr("title", entry.file.path);
         name.addEventListener(EVENT.click, () =>
           plugin.app.workspace.getLeaf("tab").openFile(entry.file),
         );
-        iconButton(row, "external-link", "Baseを開く", () =>
-          plugin.app.workspace.getLeaf("tab").openFile(entry.file),
-        );
-        iconButton(row, "copy", "Baseへのリンクをコピー", () =>
-          plugin.copyInternalLink(entry.file),
-        );
-        iconButton(row, "x", "リンクを外す", () =>
-          plugin.externalFileActions.removeLink(ext.file, entry),
-        );
+        createEditMenu(plugin, row, entry, ext.file);
       }
     }
 
@@ -55,6 +66,21 @@ function renderExternalFiles(plugin, manager, ext, { CSS_CLASS, EVENT, section, 
       "assets",
       `リンクファイル (${fileCount})`,
     );
+    const movable = files.filter(entry => entry.kind === "asset" && entry.source);
+    if (movable.length > 0) {
+      const move = sec.sectionActions.createEl("button", {
+        cls: "clickable-icon alp-move-files-button",
+        attr: { type: "button", "aria-label": "外部ファイルを移動" },
+      });
+      setIcon(move, "folder");
+      sec.sectionActions.insertBefore(move, sec.sectionActions.querySelector(".alp-info-wrap"));
+      setTooltip(move, "外部ファイルを移動");
+      move.addEventListener(EVENT.click, (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        plugin.externalFileActions.showMove(movable);
+      });
+    }
     if (files.length === 0) {
       sec.createDiv({
         cls: CSS_CLASS.alpEmpty,
@@ -68,17 +94,10 @@ function renderExternalFiles(plugin, manager, ext, { CSS_CLASS, EVENT, section, 
         cls: CSS_CLASS.alpName,
         text: entry.label,
       });
-      name.setAttr("title", entry.file?.path ?? entry.label);
       if (entry.kind === "asset" && entry.source) {
         name.addClass(CSS_CLASS.isLink);
         name.addEventListener(EVENT.click, () =>
           plugin.externalFileActions.openExternal(entry.source),
-        );
-        iconButton(row, "file-text", "メタノートを開く", () =>
-          plugin.app.workspace.getLeaf("tab").openFile(entry.file),
-        );
-        iconButton(row, "copy", "メタノートへのリンクをコピー", () =>
-          plugin.copyInternalLink(entry.file),
         );
       } else if (entry.file) {
         name.addClass(CSS_CLASS.isLink);
@@ -86,11 +105,7 @@ function renderExternalFiles(plugin, manager, ext, { CSS_CLASS, EVENT, section, 
           plugin.app.workspace.getLeaf("tab").openFile(entry.file),
         );
       }
-      if (entry.kind !== "missing") {
-        iconButton(row, "x", "リンクを外す", () =>
-          plugin.externalFileActions.removeLink(ext.file, entry),
-        );
-      }
+      createEditMenu(plugin, row, entry, ext.file);
     }
 
 }
