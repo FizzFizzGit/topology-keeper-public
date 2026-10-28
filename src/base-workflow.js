@@ -1,3 +1,4 @@
+const { t } = require('./i18n');
 const { Notice, getAllTags } = require("obsidian");
 const { BaseNameModal, BaseTagModal } = require("./base-modal");
 const { FOLDERS } = require("./plugin-settings");
@@ -38,11 +39,11 @@ class BaseWorkflow {
       const base = await plugin.baseManager.createGroupBase(viewName, tags, false);
       plugin.refreshBaseLabels();
       new Notice(
-        `Baseを作成しました: ${base.basename}${tags.length ? `（タグ条件 ${tags.length}件）` : "（タグ条件なし）"}`,
+        t('notice.baseCreated', { name: base.basename, filters: tags.length ? t('notice.baseFilters', { count: tags.length }) : t('notice.baseNoFilters') }),
       );
     } catch (error) {
       console.error("Base作成失敗:", error);
-      new Notice(`Base作成に失敗しました: ${error.message}`);
+      new Notice(t('notice.baseFailed', { error: error.message }));
     } finally {
       this.creatingStandalone = false;
     }

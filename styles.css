@@ -47,7 +47,7 @@
     padding: 6px 8px;
     border: 0;
     border-radius: 8px;
-    background-color: color-mix(in srgb, var(--alp-area-color) 12%, var(--background-primary));
+    background-color: color-mix(in srgb, var(--alp-area-color) 22%, var(--background-primary));
     line-height: 1.5;
 }
 .alp-chip.is-link { cursor: pointer; color: var(--text-accent); }
@@ -72,10 +72,11 @@
 
 /* ホットスポットの専用グラフ：サイズ変更・移動可能な独立ウィンドウ */
 .alp-graph-panel {
+    box-sizing: border-box;
     position: fixed;
     left: 4vw; top: 4vh;
     width: min(680px, 92vw); height: min(500px, 72vh);
-    min-width: 420px; min-height: 320px;
+    min-width: min(420px, 96vw); min-height: min(320px, 96vh);
     max-width: 96vw; max-height: 96vh;
     z-index: 1000; margin: 0; padding: 12px 14px;
     display: flex; flex-direction: column; gap: 6px;
@@ -86,7 +87,7 @@
     box-shadow: 0 12px 48px rgba(0, 0, 0, .42);
 }
 .alp-graph-head { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; font-size: var(--font-ui-medium); font-weight: var(--font-semibold); cursor: move; user-select: none; }
-.alp-graph-head > span { flex: 1; }
+.alp-graph-head > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .alp-graph-controls { display: flex; gap: 5px; }
 .alp-graph-controls button { min-width: 34px; padding: 3px 8px; }
 .alp-graph-close { font-size: var(--font-ui-small); padding: 5px 12px; }
@@ -149,6 +150,37 @@
 }
 .alp-partial-graph-button:hover { background-color: color-mix(in srgb, var(--alp-area-color) 28%, var(--background-primary)); }
 .alp-partial-graph-button svg { width: 15px; height: 15px; }
+.alp-external-area-reference { min-width: 0; max-width: 100%; }
+.alp-external-area-references {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+}
+.alp-external-area-references > .alp-external-area-reference { flex: 0 1 auto; }
+.alp-external-area-references .alp-finding-actions { margin: 0; }
+.alp-external-area-reference > .alp-finding-actions { min-width: 0; max-width: 100%; }
+button.alp-tag-connection-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    box-sizing: border-box;
+    flex: 0 1 auto;
+    width: fit-content;
+    min-width: 0;
+    max-width: 100%;
+    height: auto;
+    min-height: 27px;
+    padding: 4px 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+    line-height: 1.4;
+}
+.alp-tag-button-icon { display: inline-flex; flex: 0 0 auto; }
+.alp-tag-button-icon svg { width: 15px; height: 15px; }
+.alp-tag-button-label { min-width: 0; overflow-wrap: anywhere; }
 .alp-graph-icon-button {
     display: inline-flex;
     align-items: center;
@@ -169,15 +201,6 @@
 .alp-sec[data-section-key="planar"] > summary, .alp-sec[data-section-key="assets"] > summary { padding-right: 60px; }
 .alp-sec[data-section-key="planar"] > summary > .alp-info-wrap { position: static; flex: 0 0 auto; }
 .alp-sec > summary::-webkit-details-marker { display: none; }
-.alp-sec > summary::before {
-    content: "▸";
-    display: inline-block;
-    width: 12px;
-    flex: 0 0 12px;
-    color: var(--text-muted);
-    font-size: 14px;
-    line-height: 1;
-}
 .alp-sec[open] > summary::before { content: "▾"; }
 .alp-sec > summary:hover::before { color: var(--text-normal); }
 
@@ -193,11 +216,16 @@
 .alp-win-mark svg { width: 17px; height: 17px; }
 .alp-win-body { height: auto; max-height: calc(88vh - 34px); overflow-y: auto; padding: 5px 8px 8px; }
 .alp-indicators { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 1px 0 7px; }
-.alp-indicator { min-width: 0; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; grid-template-rows: auto; gap: 0 5px; align-items: center; padding: 6px 7px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); background: var(--background-primary); }
+.alp-indicator { min-width: 0; height: auto; min-height: 36px; white-space: normal; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto 12px; grid-template-rows: auto; gap: 0 4px; align-items: center; padding: 6px 7px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); background: var(--background-primary); cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
 .alp-indicator-icon { grid-row: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
 .alp-indicator-icon svg { width: 17px; height: 17px; }
-.alp-indicator-value { font-size: 16px; line-height: 1.1; font-weight: var(--font-semibold); font-variant-numeric: tabular-nums; }
-.alp-indicator-label { grid-column: 2; grid-row: 1; font-size: var(--font-ui-smaller); color: var(--text-muted); white-space: nowrap; }
+.alp-indicator-value { grid-column: 3; grid-row: 1; font-size: 16px; line-height: 1.1; font-weight: var(--font-semibold); font-variant-numeric: tabular-nums; }
+.alp-indicator-label { grid-column: 2; grid-row: 1; min-width: 0; font-size: var(--font-ui-smaller); line-height: 1.25; color: var(--text-muted); white-space: normal; overflow-wrap: anywhere; }
+.alp-indicator-open-icon { grid-column: 4; grid-row: 1; display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); }
+.alp-indicator-open-icon svg { width: 12px; height: 12px; }
+.alp-indicator:hover { background: var(--background-modifier-hover); border-color: var(--interactive-accent); }
+.alp-indicator:hover .alp-indicator-open-icon { color: var(--text-normal); }
+.alp-indicator:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; background: var(--background-modifier-hover); }
 .alp-indicator-orphan.is-alert { border-color: var(--color-red); }
 .alp-indicator-orphan.is-alert .alp-indicator-icon,
 .alp-indicator-orphan.is-alert .alp-indicator-value { color: var(--color-red); }
@@ -256,6 +284,24 @@ button.alp-indicator:hover, button.alp-indicator[aria-expanded="true"] { backgro
 .alp-finding-details > summary { cursor: pointer; list-style: none; }
 .alp-finding-details > summary::before { content: "▸"; color: var(--text-muted); }
 .alp-finding-details[open] > summary::before { content: "▾"; }
+.alp-orphan-fold > summary { display: flex; align-items: center; gap: 6px; min-height: 28px; cursor: pointer; list-style: none; }
+.alp-orphan-fold > summary::-webkit-details-marker,
+.alp-finding-details > summary::-webkit-details-marker { display: none; }
+.alp-finding-details > summary::before,
+.alp-orphan-fold > summary::before {
+    content: "▸";
+    display: inline-flex;
+    flex: 0 0 var(--tk-disclosure-minor);
+    width: var(--tk-disclosure-minor);
+    height: var(--tk-disclosure-minor);
+    align-items: center;
+    justify-content: center;
+    margin-right: 0;
+    font-size: var(--tk-disclosure-minor);
+    line-height: 1;
+    color: var(--text-muted);
+}
+.alp-orphan-fold[open] > summary::before { content: "▾"; }
 .alp-finding-details > summary .alp-finding-title { flex: 1; }
 
 .tk-move-file-list { max-height: 40vh; overflow-y: auto; overflow-wrap: anywhere; }
@@ -265,6 +311,27 @@ button.alp-indicator:hover, button.alp-indicator[aria-expanded="true"] { backgro
 
 .alp-section-actions { position: absolute; top: 0; right: 0; height: 30px; display: inline-flex; align-items: center; gap: 6px; }
 .alp-finding { position: relative; }
+button.alp-note-isolation-link {
+    appearance: none;
+    max-width: 100%;
+    height: auto;
+    padding: 3px 4px;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    background-image: none;
+    color: var(--text-normal);
+    font: inherit;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+    cursor: pointer;
+}
+button.alp-note-isolation-link:hover { background: var(--background-modifier-hover); box-shadow: none; }
+button.alp-note-isolation-link:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }
+.alp-expand-connection-button { white-space: normal; text-align: left; }
+.alp-finding.has-connection-reference > .alp-finding-actions { position: static; height: auto; margin-top: 4px; }
+.alp-finding.has-connection-reference > .alp-finding-details > summary { padding-right: 0; }
 .alp-finding-details > summary { min-height: 28px; padding-right: 33px; }
 .alp-finding > .alp-finding-actions { position: absolute; top: 6px; right: 8px; height: 28px; margin: 0; align-items: center; }
 
@@ -275,3 +342,106 @@ button.alp-indicator:hover, button.alp-indicator[aria-expanded="true"] { backgro
 .tk-file-hover-icon svg { width: 16px; height: 16px; }
 .alp-row.is-editing { background: var(--background-modifier-hover); border-radius: var(--radius-s); outline: 1px solid var(--background-modifier-border-hover); }
 .tk-file-hover-title { max-width: 260px; padding: 5px 10px 7px; border-bottom: 1px solid var(--background-modifier-border); font-size: var(--font-ui-smaller); font-weight: var(--font-semibold); overflow-wrap: anywhere; }
+.alp-win, .alp-detail-win, .alp-graph-panel {
+    --tk-disclosure-major: 20px;
+    --tk-disclosure-minor: 14px;
+    --tk-action-icon: 16px;
+    --tk-action-hit: 28px;
+}
+
+/* Shared disclosure types: major section, nested section, window action. */
+.alp-sec > summary,
+.alp-file-management > summary { min-height: 32px; gap: 6px; }
+.alp-sec > summary::before,
+.alp-file-management > summary::before {
+    content: "▸";
+    display: inline-flex;
+    flex: 0 0 var(--tk-disclosure-major);
+    width: var(--tk-disclosure-major);
+    height: var(--tk-disclosure-major);
+    align-items: center;
+    justify-content: center;
+    margin-right: 0;
+    color: var(--text-muted);
+    font-size: var(--tk-disclosure-major);
+    line-height: 1;
+}
+.alp-sec[open] > summary::before,
+.alp-file-management[open] > summary::before { content: "▾"; }
+.alp-file-management .alp-sec > summary { min-height: 28px; }
+.alp-file-management .alp-sec > summary::before {
+    flex-basis: var(--tk-disclosure-minor);
+    width: var(--tk-disclosure-minor);
+    height: var(--tk-disclosure-minor);
+    font-size: var(--tk-disclosure-minor);
+}
+.alp-btn,
+.alp-graph-close,
+.alp-graph-icon-button,
+.alp-planar-graph-button,
+.alp-move-files-button,
+.alp-partial-graph-button:not(.alp-tag-connection-button) {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: var(--tk-action-hit);
+    height: var(--tk-action-hit);
+    min-width: var(--tk-action-hit);
+    min-height: var(--tk-action-hit);
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    cursor: pointer;
+}
+.alp-btn svg, .alp-graph-close svg, .alp-graph-icon-button svg,
+.alp-move-files-button svg, .alp-partial-graph-button svg,
+.alp-tag-button-icon svg, .alp-indicator-open-icon svg {
+    width: var(--tk-action-icon);
+    height: var(--tk-action-icon);
+}
+.alp-indicator { grid-template-columns: 18px minmax(0, 1fr) auto var(--tk-action-icon); }
+button.alp-tag-connection-button { min-height: var(--tk-action-hit); }
+.alp-btn:hover, .alp-graph-close:hover, .alp-graph-icon-button:hover,
+.alp-move-files-button:hover, .alp-partial-graph-button:hover {
+    background: var(--background-modifier-hover);
+}
+.alp-btn:focus-visible, .alp-graph-close:focus-visible,
+.alp-graph-icon-button:focus-visible, .alp-move-files-button:focus-visible,
+.alp-partial-graph-button:focus-visible, .alp-expand-connection-button:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 1px;
+}
+
+/* Vector disclosure marks avoid glyph/font-weight differences between windows. */
+:is(.alp-sec, .alp-file-management) > summary { --tk-disclosure-size: var(--tk-disclosure-major); }
+:is(.alp-finding-details, .alp-orphan-fold) > summary,
+.alp-file-management .alp-sec > summary { --tk-disclosure-size: var(--tk-disclosure-minor); }
+:is(.alp-sec, .alp-file-management, .alp-finding-details, .alp-orphan-fold) > summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    list-style: none;
+}
+:is(.alp-sec, .alp-file-management, .alp-finding-details, .alp-orphan-fold) > summary::marker { content: ""; }
+:is(.alp-sec, .alp-file-management, .alp-finding-details, .alp-orphan-fold) > summary::-webkit-details-marker { display: none; }
+:is(.alp-sec, .alp-file-management, .alp-finding-details, .alp-orphan-fold) > summary::before {
+    content: "";
+    display: block;
+    flex: 0 0 var(--tk-disclosure-size);
+    width: var(--tk-disclosure-size);
+    height: var(--tk-disclosure-size);
+    margin: 0;
+    color: var(--text-muted);
+    background-color: currentColor;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m9 5 7 7-7 7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+    transform: rotate(0deg);
+    font-size: 0;
+    line-height: 0;
+}
+:is(.alp-sec, .alp-file-management, .alp-finding-details, .alp-orphan-fold)[open] > summary::before {
+    content: "";
+    transform: rotate(90deg);
+}

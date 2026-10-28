@@ -1,3 +1,4 @@
+const { t } = require('./i18n');
 const { Notice } = require("obsidian");
 const { CONFIG, getHighlightColor } = require("./plugin-settings");
 
@@ -17,14 +18,14 @@ async function openClusterInStandardGraph(plugin) {
   const graphPlugin = plugin.app.internalPlugins?.plugins?.graph?.instance;
   if (!graphPlugin?.options || typeof graphPlugin.saveOptions !== "function") {
     new Notice(
-      "標準グラフの色グループを操作できません。Obsidian のバージョンをご確認ください。",
+      t("notice.graphUnavailable"),
     );
     return;
   }
 
   const planar = plugin.maint.result?.planar;
   if (!planar) {
-    new Notice("エリア分析の結果がありません。先に再チェックしてください。");
+    new Notice(t("notice.noAnalysis"));
     return;
   }
 
@@ -45,12 +46,17 @@ async function openClusterInStandardGraph(plugin) {
       color: plugin.state.graphPlanarColor ?? CONFIG.graphPlanarColor,
       fallback: CONFIG.graphPlanarColor,
     },
+    {
+      areas: planar.remainder ?? [],
+      color: plugin.state.graphUndeterminedColor ?? CONFIG.graphUndeterminedColor,
+      fallback: CONFIG.graphUndeterminedColor,
+    },
   ];
   const colorGroups = [];
   for (const { areas, color, fallback } of categories) {
     const paths = new Set();
     for (const area of areas) {
-      for (const id of area.nodes ?? []) {
+      for (const id of area.originalNodes ?? area.nodes ?? []) {
         if (String(id).startsWith("#") || claimed.has(id)) continue;
         paths.add(id);
       }
@@ -65,10 +71,6 @@ async function openClusterInStandardGraph(plugin) {
       : fallback;
     const rgb = Number.parseInt(colorValue.slice(1), 16);
     colorGroups.push({ query, color: { a: 1, rgb } });
-  }
-  if (colorGroups.length === 0) {
-    new Notice("色分けできるノートがありません。");
-    return;
   }
 
   try {
@@ -93,6 +95,10 @@ async function openClusterInStandardGraph(plugin) {
     plugin.state.graphColorGroupQueries = colorGroups.map((group) => group.query);
     delete plugin.state.graphHighlightQuery;
     await plugin.saveData(plugin.state);
+    if (colorGroups.length === 0) {
+      new Notice(t("notice.colorsCleared"));
+      return;
+    }
 
     // 先に表示先を確保する。グラフが唯一のタブだった場合、先に閉じると
     // "tab" を作るためのタブグループまで消えてしまう。
@@ -106,11 +112,11 @@ async function openClusterInStandardGraph(plugin) {
       leaf = workspace.getLeaf(true);
     }
     await leaf.setViewState({ type: "graph", active: true });
-    new Notice("エリア分類ごとに色分けしたグラフを新しいタブで開きました。");
+    new Notice(t("notice.graphOpened"));
   } catch (error) {
     console.error("Topology Keeper: failed to open highlighted graph", error);
     new Notice(
-      "標準グラフの着色に失敗しました。Obsidian のグラフ設定は変更された可能性があります。",
+      t("notice.graphFailed"),
     );
   }
 }

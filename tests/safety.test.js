@@ -13,7 +13,7 @@ function load(name, overrides = {}, globals = {}) {
   const filename = require.resolve('../src/' + name);
   const nativeRequire = createRequire(filename);
   const context = { module: { exports: {} }, console, URL, ...globals,
-    require: id => Object.hasOwn(overrides, id) ? overrides[id] : nativeRequire(id) };
+    require: id => Object.hasOwn(overrides, id) ? overrides[id] : id === './i18n' ? { t: require('../src/i18n-core').createTranslator('ja') } : nativeRequire(id) };
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   return context.module.exports;
 }
@@ -200,6 +200,59 @@ test('ticker interrupts work after the analysis time budget', async () => {
   const tick = workflow.makeTicker(1);
   now = CONFIG.analysisTimeLimit + 1;
   await assert.rejects(tick(), error => error.code === 'ANALYSIS_TIMEOUT');
+});
+
+test('area model failure preserves the previous graph, classification and memberships together', async () => {
+  const previousGraph = new Map();
+  const previousPlanar = { safe: [] };
+  const previousModel = { originalAreas: [{ id: 'old' }], combinedAreas: [] };
+  const Workflow = load('maintenance-workflow', {
+    obsidian,
+    './graph-analysis': { buildAdjacency: () => new Map(), findNonPlanar: async () => ({ safe: ['new'] }) },
+    './area-model': { buildAreaHierarchy: async () => {
+      const error = new Error('timeout'); error.code = 'ANALYSIS_TIMEOUT'; throw error;
+    } },
+  }, { performance, setTimeout, console: { error() {} } });
+  const plugin = {
+    app: {}, state: { visible: true },
+    maint: { token: 0, graphAdj: previousGraph, result: { planar: previousPlanar, areaModel: previousModel } },
+    computeOrphans: () => ({ orphans: [], strayThumbs: [], orphanBases: [], ready: true }),
+    mainView: { render() {} },
+  };
+  await new Workflow(plugin, {}).run();
+  assert.equal(plugin.maint.graphAdj, previousGraph);
+  assert.equal(plugin.maint.result.planar, previousPlanar);
+  assert.equal(plugin.maint.result.areaModel, previousModel);
+  assert.ok(plugin.maint.result.analysisError);
+});
+
+test('maintenance publishes the graph and new area model only after both analyses complete', async () => {
+  const graph = new Map();
+  const planar = { safe: [] };
+  const model = { originalAreas: [], combinedAreas: [] };
+  let plugin;
+  const Workflow = load('maintenance-workflow', {
+    obsidian,
+    './graph-analysis': { buildAdjacency: () => graph, findNonPlanar: async (adjacency, tick, limit, options) => {
+      assert.equal(adjacency, graph);
+      assert.ok(options.tagWeights instanceof Map);
+      return planar;
+    } },
+    './area-model': { buildAreaHierarchy: async adjacency => {
+      assert.equal(adjacency, graph);
+      assert.equal(plugin.maint.graphAdj, undefined);
+      return model;
+    } },
+  }, { performance, setTimeout, Map });
+  plugin = {
+    app: {}, state: { visible: true }, maint: { token: 0, result: {} },
+    computeOrphans: () => ({ orphans: [], strayThumbs: [], orphanBases: [], ready: true }),
+    mainView: { render() {} },
+  };
+  await new Workflow(plugin, {}).run();
+  assert.equal(plugin.maint.graphAdj, graph);
+  assert.equal(plugin.maint.result.planar, planar);
+  assert.equal(plugin.maint.result.areaModel, model);
 });
 
 test('import recovery keeps journal on failure and clears it only after successful saving', async () => {

@@ -1,3 +1,4 @@
+const { t } = require('./i18n');
 const { Modal } = require("obsidian");
 
 const CSS_CLASS = {
@@ -5,7 +6,7 @@ const CSS_CLASS = {
   modalError: "topology-keeper-modal-error",
   modCta: "mod-cta",
 };
-const UI_TEXT = { cancel: "キャンセル", create: "作成" };
+const UI_TEXT = { cancel: t("common.cancel"), create: t("common.create") };
 const EVENT = { click: "click", keydown: "keydown" };
 
 // window.prompt() は Obsidian の実行環境で利用できないため、Obsidian の Modal を使う。
@@ -32,11 +33,11 @@ class BaseNameModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    this.setTitle("新しいBaseを作成");
-    contentEl.createEl("p", { text: "ビュー名を入力してください。" });
+    this.setTitle(t("base.new"));
+    contentEl.createEl("p", { text: t("base.namePrompt") });
 
     const input = contentEl.createEl("input", { attr: { type: "text" } });
-    input.placeholder = "例：参考資料";
+    input.placeholder = t("base.nameExample");
     input.style.width = "100%";
     input.focus();
 
@@ -54,7 +55,7 @@ class BaseNameModal extends Modal {
     const submit = () => {
       const value = input.value.trim();
       if (!value) {
-        error.setText("ビュー名を入力してください。");
+        error.setText(t("base.namePrompt"));
         error.style.display = "block";
         input.focus();
         return;
@@ -108,8 +109,8 @@ class BaseTagModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    this.setTitle("Baseのタグフィルタ");
-    contentEl.createEl("p", { text: "このBaseに表示するメタノートのタグを選択してください。複数選ぶと、すべてのタグを持つノートに絞り込みます。" });
+    this.setTitle(t("base.filterTitle"));
+    contentEl.createEl("p", { text: t("base.filterHelp") });
 
     const list = contentEl.createDiv();
     list.style.maxHeight = "40vh";
@@ -127,17 +128,17 @@ class BaseTagModal extends Modal {
         checks.push([tag, cb]);
       }
     } else {
-      list.createEl("p", { text: "既存タグはありません。下の欄から追加できます。" });
+      list.createEl("p", { text: t("base.noTags") });
     }
 
-    contentEl.createEl("p", { text: "追加のタグ（空白・カンマ区切り）" });
-    const free = contentEl.createEl("input", { attr: { type: "text", placeholder: "例：資料 研究/分類" } });
+    contentEl.createEl("p", { text: t("base.moreTags") });
+    const free = contentEl.createEl("input", { attr: { type: "text", placeholder: t("base.tagsExample") } });
     free.style.width = "100%";
 
     const buttons = contentEl.createDiv({ cls: CSS_CLASS.modalButtonContainer });
     const cancel = buttons.createEl("button", { text: UI_TEXT.cancel });
     cancel.addEventListener(EVENT.click, () => this.close());
-    const create = buttons.createEl("button", { text: "Baseを作成", cls: CSS_CLASS.modCta });
+    const create = buttons.createEl("button", { text: t("window.createBase"), cls: CSS_CLASS.modCta });
     create.addEventListener(EVENT.click, () => {
       const picked = checks.filter(([, cb]) => cb.checked).map(([tag]) => tag);
       const typed = free.value.split(/[\s,;]+/).map((tag) => tag.replace(/^#+/, "").trim()).filter(Boolean);

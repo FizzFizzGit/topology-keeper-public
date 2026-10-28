@@ -43,9 +43,11 @@ const CONFIG = {
   thumbnailMaxEdge: 256, // サムネイルの長辺(px)
   imageExtensions: new Set(Object.keys(IMAGE_MIME_TYPES)), // 画像として扱う拡張子（上の対応表のキー）
   trashOnRemove: false, // true: 「✕」でメタノートとサムネイルも同時にゴミ箱へ
-  graphPlanarColor: "#0072B2", // 平面ノートの既定色
-  clusterHighlightColor: "#E69F00", // ホットスポットの既定色
-  graphNonPlanarColor: "#CC79A7", // 非平面ノートの既定色
+  graphPlanarColor: "#ad8bfe", // 平面ノートの既定色
+  clusterHighlightColor: "#ffae70", // ホットスポットの既定色
+  graphNonPlanarColor: "#fe8bc8", // 非平面ノートの既定色
+  primitiveAreaColor: "#70c9c0", // 素領域リストの既定色（青緑）
+  graphUndeterminedColor: "#8792a2", // 未判定部分の既定色（灰青）
   maxFindings: 200, // K5・K3,3 それぞれの検出上限
   maintenanceDelay: 1500, // 再計算までの待ち時間(ms)
   maxImageBytes: 32 * 1024 * 1024,
@@ -70,6 +72,14 @@ function normalizeWindowPosition(value) {
   return value && Number.isFinite(value.x) && Number.isFinite(value.y)
     ? { x: value.x, y: value.y }
     : null;
+}
+
+function normalizeAllowedOrphanFolder(value) {
+  if (typeof value !== 'string') return null;
+  const folder = value.trim().replace(/\/+$/, '');
+  if (!folder) return value.trim() ? null : '';
+  if (folder.startsWith('/') || /[\\:]/.test(folder) || folder.split('/').some(part => !part || part === '.' || part === '..')) return null;
+  return folder;
 }
 
 // 実行時に有効なフォルダ構成。設定画面で変更される。
@@ -125,7 +135,10 @@ function loadSettings(saved) {
   return {
     ...saved,
     folders: { ...FOLDERS },
+    orphanAllowedFolder: normalizeAllowedOrphanFolder(saved.orphanAllowedFolder ?? '') ?? '',
     graphPlanarColor: saved.graphPlanarColor ?? CONFIG.graphPlanarColor,
+    primitiveAreaColor: saved.primitiveAreaColor ?? CONFIG.primitiveAreaColor,
+    graphUndeterminedColor: saved.graphUndeterminedColor ?? CONFIG.graphUndeterminedColor,
     // 旧既定色だけを新しい色分けの既定色へ移行し、利用者のカスタム色は維持する。
     clusterHighlightColor:
       saved.clusterHighlightColor === "#FF3030"
@@ -143,6 +156,9 @@ function loadSettings(saved) {
     orphanWindowVisible: saved.orphanWindowVisible === true,
     orphanPos: normalizeWindowPosition(saved.orphanPos),
     graphPos: normalizeWindowPosition(saved.graphPos),
+    graphSize: saved.graphSize && Number.isFinite(saved.graphSize.width) && Number.isFinite(saved.graphSize.height)
+      && saved.graphSize.width > 0 && saved.graphSize.height > 0
+      ? { width: saved.graphSize.width, height: saved.graphSize.height } : null,
     pendingImport: saved.pendingImport && typeof saved.pendingImport.mainNotePath === "string" && Array.isArray(saved.pendingImport.paths)
       ? { ...saved.pendingImport, paths: [...new Set(saved.pendingImport.paths.filter(value => typeof value === "string"))] }
       : null,
@@ -176,9 +192,12 @@ function setFolder(state, key, folder) {
 // 小窓の位置・表示状態・折りたたみなどは、設定ではなく利用状況なので保持する。
 // 設定項目を増やしたときは、ここに追加しないとリセットで戻らない点に注意。
 function resetUserSettings(state) {
+  state.orphanAllowedFolder = '';
   Object.assign(FOLDERS, DEFAULT_FOLDERS);
   state.folders = { ...FOLDERS };
   state.graphPlanarColor = CONFIG.graphPlanarColor;
+  state.primitiveAreaColor = CONFIG.primitiveAreaColor;
+  state.graphUndeterminedColor = CONFIG.graphUndeterminedColor;
   state.clusterHighlightColor = CONFIG.clusterHighlightColor;
   state.graphNonPlanarColor = CONFIG.graphNonPlanarColor;
   state.tagStopWords = [...DEFAULT_TAG_STOP_WORDS];
@@ -197,6 +216,7 @@ module.exports = {
   DEFAULT_FOLDERS,
   DEFAULT_TAG_STOP_WORDS,
   normalizeTagStopWords,
+  normalizeAllowedOrphanFolder,
   FOLDERS,
   isManagedPath,
   loadSettings,

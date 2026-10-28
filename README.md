@@ -1,10 +1,32 @@
 # Topology Keeper
 
+## Area analysis in 0.29.0
+
+The mathematical background belongs in this README rather than the settings page: planarity means that a graph can be drawn without crossing edges. The checks use K₅/K₃,₃ structures and degree conditions related to subdivisions in Kuratowski's theorem, after pruning low-degree vertices and suppressing degree-two vertices. Checks apply to the resulting areas, not to the entire vault or the quality of note content.
+
+The orphan indicator now checks ordinary notes across the vault. Notes without incoming or outgoing links to other ordinary notes and without shared-tag connections are counted for review. Tag-only connections are listed separately. Configure an optional vault-relative **folder allowing isolated notes** (such as `未分類`); its descendants are excluded from the review count and listed as allowed. Empty means no folder exception. This does not move or delete notes. Generated metadata cleanup remains in a collapsed maintenance section.
+
+Tag contributions to structural grouping are assessed using other shared tags, direct note links, and distribution across tag-free link components. The candidate tag is excluded from its own evidence, and ubiquitous co-tags contribute less. Tags with sufficient evidence but weak cohesion contribute less to grouping while remaining visible as cross-area connections. Insufficient evidence leaves their weight unchanged. Expand a combined area to inspect the reasons. These are provisional structural estimates, not semantic labels such as “diary” or “topic.”
+
+When direct note links support several independent communities, that partition takes priority. Shared tags remain as cross-area connections, reducing excessive merging caused by a single tag. Without sufficient direct-link evidence, weighted structural grouping remains the fallback.
+
+Partial graph windows remember their dragged position and resized dimensions across reopening and plugin reloads. Saved geometry is constrained to the available viewport.
+
+For repeated tag connections with the same graph content, only the first occurrence has a partial-graph button. Later occurrences offer a button that expands the first area's entry and scrolls to its connection. Display order determines priority, so hotspots take precedence over the undetermined remainder.
+
+Expand a finding (planar, nonplanar, hotspot, or undetermined remainder outside hotspots) to inspect its internal **areas** and tag-based **combined areas**. Internal areas are connected groups of notes using direct links within that parent, including pairs and chains. The indicator displays only the count of parent findings.
+
+The previous dense/sparse, planar/nonplanar groups and hotspots remain the entry points. Undetermined findings are displayed as hotspots plus the remaining parts, rather than also listing the whole undetermined parent. The remainder includes sparse parts and small groups that fail the hotspot conditions. Follow a hotspot to its internal note groups and connecting tags. Combined-area lists and counts include only connections within that parent. Cross-parent connections appear as short references with destination names in a separate subsection inside each related parent. Their graph buttons open the shared cross-area relationship; it is not listed twice as an internal combined area. There is no separate top-level list of internal areas or connections. Overlapping parents can contain separate views of the same notes; this is not a disjoint partition of the vault.
+
+The partial graph distinguishes constituent areas by color and numbered labels. Tag edges connect only notes carrying that tag. Connections through different tags are kept separate rather than merged transitively. Partial graphs show up to 90 nodes and indicate omissions.
+
+Planarity labels inside primitive areas refer to their direct note-link graphs. Combined areas have no planarity classification. Standard graph colors follow the major findings: nonplanar, hotspot, planar, and undetermined remainder, in that priority order for shared notes. Coloring includes original notes along contracted paths. Undetermined parts default to a configurable blue-gray. Notes connected only through tags, without a structural area, are not included as combined areas in this version.
+
 English | [日本語](README.ja.md)
 
 Topology Keeper is a desktop-only Obsidian plugin that helps you explore the structure of your notes through links and tags. It provides graph area analysis, tag suggestions, and tools for associating local external files with notes.
 
-This is an experimental release. Development and automated tests have been performed on Windows. Compatibility with macOS, Linux, and the declared minimum Obsidian version still needs verification. The plugin interface is currently in Japanese.
+This is an experimental release. Development and automated tests have been performed on Windows. Compatibility with macOS, Linux, and the declared minimum Obsidian version still needs verification. For 0.29.0, English UI coverage includes settings, commands, the main and analysis windows, partial graphs, tag suggestions, external file operations, import recovery, and cleanup confirmations. Some internal errors and developer logs may still be Japanese. Reload the plugin after changing language. English UI and modal display have been confirmed by the user; exhaustive visual checks across all screens and widths remain pending.
 
 ## Features
 

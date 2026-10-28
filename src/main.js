@@ -6,6 +6,8 @@ const {
   getAllTags,
 } = require("obsidian");
 const { computeTagSuggestions, TagSuggestModal } = require("./tag-suggest");
+const { TagSuggestionCache } = require('./tag-suggest-cache');
+const { t } = require('./i18n');
 const TopologyKeeperSettingTab = require("./settings-tab");
 const { renderClusterGraph } = require("./graph-view");
 const MainWindowView = require("./main-window");
@@ -45,6 +47,12 @@ const ABORTED = Symbol("aborted");
 // =================================================================
 module.exports = class AssetLinksPanel extends Plugin {
   async onload() {
+    this.tagSuggestionCache = new TagSuggestionCache();
+    const invalidateTagCorpus = () => this.tagSuggestionCache.invalidate();
+    for (const event of ['modify', 'create', 'delete', 'rename'])
+      this.registerEvent(this.app.vault.on(event, invalidateTagCorpus));
+    for (const event of ['changed', 'resolved'])
+      this.registerEvent(this.app.metadataCache.on(event, invalidateTagCorpus));
     // 保存データ（Obsidian が Vault 内 `.obsidian/plugins/<プラグインID>/data.json` に JSON で保存したもの）。
     // 初回起動では null なので {} にする。項目の一覧は plugin-settings.js の loadSettings を参照。
     const s = (await this.loadData()) ?? {};
@@ -144,6 +152,8 @@ module.exports = class AssetLinksPanel extends Plugin {
       getResult: () => this.maint.result,
       getSelectedCluster: () => this.maint.selectedCluster,
       getAreaColors: () => ({
+        primitive: this.state.primitiveAreaColor ?? CONFIG.primitiveAreaColor,
+        undetermined: this.state.graphUndeterminedColor ?? CONFIG.graphUndeterminedColor,
         planar: this.state.graphPlanarColor ?? CONFIG.graphPlanarColor,
         hotspot: this.state.clusterHighlightColor ?? CONFIG.clusterHighlightColor,
         nonplanar: this.state.graphNonPlanarColor ?? CONFIG.graphNonPlanarColor,
@@ -296,17 +306,17 @@ module.exports = class AssetLinksPanel extends Plugin {
   registerCommands() {
     this.addCommand({
       id: "recover-import",
-      name: "未完了の取り込みを復旧",
+      name: t("command.recoverImport"),
       callback: () => this.importWorkflow.recover(),
     });
     this.addCommand({
       id: "reset-window-positions",
-      name: "小窓・詳細窓の位置をリセット",
+      name: t("command.resetPositions"),
       callback: () => this.resetWindowPositions(),
     });
     this.addCommand({
       id: "add-external-files",
-      name: "外部ファイルを追加（メタノート作成）",
+      name: t("command.addExternalFiles"),
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
         if (!file || file.extension !== "md" || isManaged(file)) return false;
@@ -316,7 +326,7 @@ module.exports = class AssetLinksPanel extends Plugin {
     });
     this.addCommand({
       id: "toggle-maintenance-window",
-      name: "小窓の表示/非表示",
+      name: t("command.toggleWindow"),
       callback: async () => {
         this.state.visible = !this.state.visible;
         await this.saveData(this.state);
@@ -325,12 +335,12 @@ module.exports = class AssetLinksPanel extends Plugin {
     });
     this.addCommand({
       id: "recheck-maintenance",
-      name: "メンテナンスチェックを再実行",
+      name: t("command.recheck"),
       callback: () => this.maintenance.run(true),
     });
     this.addCommand({
       id: "suggest-tags",
-      name: "タグを提案（既存タグから）",
+      name: t("command.suggestTags"),
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
         if (!file || file.extension !== "md" || isManaged(file)) return false;
@@ -348,6 +358,7 @@ module.exports = class AssetLinksPanel extends Plugin {
   }
 
   onunload() {
+    this.tagSuggestionCache?.dispose();
     this.maintenance.cancel(); // 実行中の計算を中断
     this.uiStyleEl?.remove();
     this.disposeGraphListeners();
@@ -436,10 +447,10 @@ module.exports = class AssetLinksPanel extends Plugin {
     if (!file) return;
     try {
       await copyTextToClipboard(`[[${file.path}]]`);
-      new Notice("Obsidianリンクをコピーしました");
+      new Notice(t("notice.copyDone"));
     } catch (error) {
       console.error("リンクをコピーできませんでした:", error);
-      new Notice("リンクをコピーできませんでした");
+      new Notice(t("notice.copyFailed"));
     }
   }
 
@@ -462,8 +473,9 @@ module.exports = class AssetLinksPanel extends Plugin {
         file,
         isManaged,
         this.state.tagStopWords,
+        this.tagSuggestionCache,
       );
-      if (!items.length) { new Notice("提案できるタグがありませんでした。"); return; }
+      if (!items.length) { new Notice(t("tags.none")); return; }
       new TagSuggestModal(this.app, file, items, async (picked) => {
           if (!picked.length) return;
           await this.app.fileManager.processFrontMatter(file, (fm) => {
@@ -471,7 +483,7 @@ module.exports = class AssetLinksPanel extends Plugin {
                   : (fm.tags ? String(fm.tags).split(/[,\s]+/).filter(Boolean) : []);
               fm.tags = [...new Set([...cur, ...picked])];
           });
-          new Notice(`${picked.length}件のタグを追加しました。`);
+          new Notice(t('tags.added', { count: picked.length }));
       }).open();
   }
 

@@ -1,15 +1,11 @@
 // メイン窓・詳細窓・設定画面で共有する表示名とUI識別子。
 // UIの振る舞いは各Viewに置き、ここには再利用する定数だけを置く。
-const UI_TEXT = {
-  create: "作成",
-  cancel: "キャンセル",
-  close: "閉じる",
-  detailOpen: "詳細を開く",
-  detailClose: "詳細を閉じる",
-  orphan: "孤立",
-  crossingCandidates: "エリア候補",
-  clean: "✨ クリーンです",
-};
+const { t } = require('./i18n');
+const UI_TEXT = Object.defineProperties({}, Object.fromEntries(Object.entries({
+  create: 'common.create', cancel: 'common.cancel', close: 'common.close',
+  detailOpen: 'common.detailOpen', detailClose: 'common.detailClose',
+  orphan: 'common.orphan', crossingCandidates: 'common.areaCandidates', clean: 'common.clean',
+}).map(([key, message]) => [key, { enumerable: true, get: () => t(message) }])));
 
 const CSS_CLASS = {
   modalButtonContainer: "modal-button-container",

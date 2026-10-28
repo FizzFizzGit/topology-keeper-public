@@ -1,7 +1,9 @@
 const { PluginSettingTab, Setting, Notice } = require("obsidian");
+const { t } = require('./i18n');
 const {
   DEFAULT_FOLDERS,
   normalizeTagStopWords,
+  normalizeAllowedOrphanFolder,
   FOLDERS,
   setFolder,
   resetUserSettings,
@@ -34,46 +36,46 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", { text: "Topology Keeper" });
     new Setting(containerEl)
-      .setName("小窓・詳細窓の位置")
-      .setDesc("移動した位置を記憶します。リセットすると小窓は右上、詳細窓は小窓の左側へ戻ります。")
-      .addButton(button => button.setButtonText("位置をリセット").onClick(async () => {
+      .setName(t("settings.positions"))
+      .setDesc(t("settings.positionsDesc"))
+      .addButton(button => button.setButtonText(t("settings.resetPositions")).onClick(async () => {
         await this.plugin.resetWindowPositions();
-        new Notice("小窓・詳細窓の位置をリセットしました。");
+        new Notice(t("settings.positionsReset"));
       }));
     containerEl.createEl("p", {
-      text: "プラグインが作成する管理用ファイルの保存先を設定します。変更しても既存ファイルは自動で移動されず、変更前の保存先に残るファイルは管理対象外になります。必要な場合は手動で移動してください。",
+      text: t("settings.storageDesc"),
     });
 
-    containerEl.createEl("h3", { text: "外部ファイル" });
+    containerEl.createEl("h3", { text: t("settings.externalFiles") });
     if (this.plugin.state.pendingImport) {
       new Setting(containerEl)
-        .setName("未完了の取り込み")
-        .setDesc(`元ノート: ${this.plugin.state.pendingImport.mainNotePath}。作成済みファイルを保持し、削除操作を停止しています。`)
-        .addButton(button => button.setButtonText("復旧").onClick(async () => {
+        .setName(t("settings.pendingImport"))
+        .setDesc(t('settings.pendingDesc', { path: this.plugin.state.pendingImport.mainNotePath }))
+        .addButton(button => button.setButtonText(t("settings.recover")).onClick(async () => {
           await this.plugin.importWorkflow.recover();
           this.display();
         }))
-        .addButton(button => button.setButtonText("記録だけ解除").onClick(async () => {
+        .addButton(button => button.setButtonText(t("settings.clearRecovery")).onClick(async () => {
           await this.plugin.importWorkflow.discardRecovery();
           this.display();
         }));
     }
     new Setting(containerEl)
-      .setName("外部画像を埋め込み表示")
-      .setDesc("既定はオフです。有効にするとメタノートのsourceが指すローカル画像を読み込みます。信頼できるVaultで使用し、変更後は対象ノートを開き直してください。")
+      .setName(t("settings.embedImages"))
+      .setDesc(t("settings.embedImagesDesc"))
       .addToggle(toggle => toggle.setValue(this.plugin.state.enableExternalImageEmbeds).onChange(async value => {
         this.plugin.state.enableExternalImageEmbeds = value;
         await this.plugin.saveData(this.plugin.state);
       }));
-    containerEl.createEl("h3", { text: "管理フォルダ" });
+    containerEl.createEl("h3", { text: t("settings.managedFolders") });
     const entries = [
       [
         "meta",
-        "メタノートの保存先",
-        "外部ファイルの情報を保持するMarkdownノート",
+        t("settings.metaFolder"),
+        t("settings.metaFolderDesc"),
       ],
-      ["thumb", "サムネイルの保存先", "外部画像から生成したサムネイル"],
-      ["base", "Baseの保存先", "コレクション表示用のBaseファイル"],
+      ["thumb", t("settings.thumbnailFolder"), t("settings.thumbnailFolderDesc")],
+      ["base", t("settings.baseFolder"), t("settings.baseFolderDesc")],
     ];
     for (const [key, name, desc] of entries) {
       new Setting(containerEl)
@@ -96,7 +98,7 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
                   .some((part) => !part || part === "." || part === "..") ||
                 folder.includes("\\")
               ) {
-                new Notice("Vault内の相対フォルダパスを入力してください。");
+                new Notice(t("settings.invalidFolder"));
                 return;
               }
               const other = Object.entries(FOLDERS).find(
@@ -105,7 +107,7 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
               );
               if (other) {
                 new Notice(
-                  "管理フォルダにはそれぞれ異なるパスを指定してください。",
+                  t("settings.duplicateFolder"),
                 );
                 return;
               }
@@ -116,27 +118,32 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
         );
     }
 
-    containerEl.createEl("h3", { text: "平面性とクラトフスキーの定理" });
-    containerEl.createEl("p", {
-      text: "平面性は、辺を交差させずにグラフを描けるかという性質です。次数1以下の頂点を除き、次数2の頂点を縮約した後、内部リンクが集中するエリアへ分割して判定します。境界をまたぐリンクは各エリアの判定に含めないため、グラフ全体の平面性やノートの品質を保証するものではありません。",
-    });
-    containerEl.createEl("p", {
-      text: "結果は「非平面」「平面」「ホットスポット」の3種類で表示します。平面判定はK₅の細分に必要な次数4以上の頂点5つ、K₃,₃の細分に必要な次数3以上の頂点6つのどちらも存在しない場合に行います。平面性を判定できないエリアは各ノードと1近傍の密度を計算し、隣接ノード間の密度差がその領域の平均を超える辺を境界候補として分けます。3ノード以上で領域密度25%以上のエリアをホットスポットとして表示します。境界候補は試験的な目安で、異常や分類の誤りを意味しません。クリックすると周辺ノードと境界候補辺を含むグラフを表示します。",
-      cls: this.options.CSS_CLASS.settingDescription,
-    });
+    containerEl.createEl('h3', { text: t("settings.isolatedNotes") });
+    new Setting(containerEl)
+      .setName(t("settings.excludedFolder"))
+      .setDesc(t("settings.excludedFolderDesc"))
+      .addText(text => text.setPlaceholder(t("settings.unsortedExample")).setValue(this.plugin.state.orphanAllowedFolder ?? '').onChange(async value => {
+        const folder = normalizeAllowedOrphanFolder(value);
+        if (folder === null) { new Notice(t("settings.invalidFolder")); return; }
+        this.plugin.state.orphanAllowedFolder = folder;
+        await this.plugin.saveData(this.plugin.state);
+        this.plugin.scheduleMaint();
+      }));
 
-    containerEl.createEl("h3", { text: "グラフ表示" });
+    containerEl.createEl("h3", { text: t("settings.graphDisplay") });
     const graphColors = [
-      ["graphPlanarColor", "平面ノードの色", "平面と判定したノートに使います。"],
+      ['graphUndeterminedColor', t("settings.undeterminedColor"), t("settings.undeterminedColorDesc")],
+      ['primitiveAreaColor', t("settings.primitiveColor"), t("settings.primitiveColorDesc")],
+      ["graphPlanarColor", t("settings.planarColor"), t("settings.planarColorDesc")],
       [
         "clusterHighlightColor",
-        "ホットスポットの色",
-        "ホットスポットに分類したノートに使います。",
+        t("settings.hotspotColor"),
+        t("settings.hotspotColorDesc"),
       ],
       [
         "graphNonPlanarColor",
-        "非平面ノードの色",
-        "非平面と判定したノートに使います。",
+        t("settings.nonplanarColor"),
+        t("settings.nonplanarColorDesc"),
       ],
     ];
     for (const [key, name, description] of graphColors) {
@@ -157,13 +164,13 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
         );
     }
 
-    containerEl.createEl("h3", { text: "タグ提案" });
+    containerEl.createEl("h3", { text: t("settings.tagSuggestions") });
     new Setting(containerEl)
-      .setName("ストップワード")
-      .setDesc("新規タグ候補から除外する語を1行に1つ入力します。空欄にすると除外語はありません。")
+      .setName(t("settings.stopWords"))
+      .setDesc(t("settings.stopWordsDesc"))
       .addTextArea((text) =>
         text
-          .setPlaceholder("例：\nメモ\nノート\nまとめ")
+          .setPlaceholder(t("settings.stopWordsExample"))
           .setValue((this.plugin.state.tagStopWords ?? []).join("\n"))
           .onChange(async (value) => {
             this.plugin.state.tagStopWords = normalizeTagStopWords(
@@ -174,20 +181,20 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("設定を初期値に戻す")
+      .setName(t("settings.resetAll"))
       .setDesc(
-        "管理フォルダ、グラフ分類色、タグ提案のストップワード、外部画像の表示を初期値に戻します。既存ファイルは移動・削除されません。",
+        t("settings.resetAllDesc"),
       )
       .addButton((button) =>
         button
-          .setButtonText("リセット")
+          .setButtonText(t("common.reset"))
           .setWarning()
           .onClick(async () => {
             // リセット対象の定義（何を戻し、何を保持するか）は plugin-settings.js 側にある。
             resetUserSettings(this.plugin.state);
             await this.plugin.saveData(this.plugin.state);
             this.display();
-            new Notice("Topology Keeperの設定を初期値に戻しました。");
+            new Notice(t("settings.defaultsRestored"));
           }),
       );
   }

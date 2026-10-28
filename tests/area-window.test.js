@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 function view(kind) {
-  const context = { module: { exports: {} }, require: id => id === 'obsidian' ? {} : require('../src/graph-analysis') };
+  const context = { module: { exports: {} }, require: id => id === 'obsidian' ? {} : id === './i18n' ? { t: require('../src/i18n-core').createTranslator('ja') } : require('../src/graph-analysis') };
   vm.runInNewContext(fs.readFileSync(require.resolve('../src/detail-window'), 'utf8'), context);
   const api = { CSS_CLASS: { isHidden: 'hidden' }, updateDetailButton() {}, removeInfoPopovers() {}, disposeGraphListeners() { throw new Error('unrelated graph disposed'); }, fitWindowToContent() {} };
   return new context.module.exports(api, kind);

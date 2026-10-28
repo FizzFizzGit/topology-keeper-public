@@ -1,4 +1,6 @@
-const UI_TEXT = { close: "閉じる" };
+const { t } = require('./i18n');
+const { setIcon } = require('obsidian');
+const UI_TEXT = { close: t("window.closeAction") };
 const CSS_CLASS = { isPanning: "is-panning" };
 const EVENT = {
   click: "click",
@@ -15,6 +17,11 @@ const nodeLabel = (id) =>
 // 部分グラフ窓のpx座標を復元し、タイトルバー移動後にプラグイン設定へ保存する。
 // 入力は窓DOMとプラグイン。返却する関数は移動・画面サイズ変更のリスナーを解除する。
 function bindGraphWindowPosition(plugin, panel, head) {
+  const size = plugin.state.graphSize;
+  if (size) {
+    panel.style.width = `${Math.min(size.width, window.innerWidth * 0.96)}px`;
+    panel.style.height = `${Math.min(size.height, window.innerHeight * 0.96)}px`;
+  }
   const constrain = (x, y) => {
     const rect = panel.getBoundingClientRect();
     const position = {
@@ -27,6 +34,34 @@ function bindGraphWindowPosition(plugin, panel, head) {
   };
   const saved = plugin.state.graphPos;
   if (saved) constrain(saved.x, saved.y);
+  else {
+    const rect = panel.getBoundingClientRect();
+    constrain(rect.left, rect.top);
+  }
+  let lastRect = panel.getBoundingClientRect();
+  let sizeTimer = null;
+  let pendingSize = false;
+  const saveSize = () => {
+    if (sizeTimer !== null) clearTimeout(sizeTimer);
+    sizeTimer = null;
+    if (!pendingSize) return;
+    pendingSize = false;
+    plugin.state.graphSize = { width: lastRect.width, height: lastRect.height };
+    plugin.state.graphPos = { x: lastRect.left, y: lastRect.top };
+    plugin.saveData(plugin.state);
+  };
+  const observeSize = () => {
+    const rect = panel.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    if (rect.width === lastRect.width && rect.height === lastRect.height) return;
+    const position = constrain(rect.left, rect.top);
+    lastRect = { ...position, left: position.x, top: position.y, width: rect.width, height: rect.height };
+    pendingSize = true;
+    if (sizeTimer !== null) clearTimeout(sizeTimer);
+    sizeTimer = setTimeout(saveSize, 250);
+  };
+  const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(observeSize) : null;
+  observer?.observe(panel);
   let move = null;
   let moved = false;
   const stop = () => {
@@ -39,6 +74,7 @@ function bindGraphWindowPosition(plugin, panel, head) {
       moved = false;
       const rect = panel.getBoundingClientRect();
       plugin.state.graphPos = constrain(rect.left, rect.top);
+      lastRect = { left: plugin.state.graphPos.x, top: plugin.state.graphPos.y, width: rect.width, height: rect.height };
       plugin.saveData(plugin.state);
     }
   };
@@ -60,13 +96,19 @@ function bindGraphWindowPosition(plugin, panel, head) {
   const resize = () => {
     const rect = panel.getBoundingClientRect();
     constrain(rect.left, rect.top);
+    observeSize();
   };
   head.addEventListener("pointerdown", start);
   window.addEventListener("resize", resize);
+  document.addEventListener('pointerup', saveSize);
   return () => {
+    observeSize();
+    observer?.disconnect();
+    saveSize();
     stop();
     head.removeEventListener("pointerdown", start);
     window.removeEventListener("resize", resize);
+    document.removeEventListener('pointerup', saveSize);
   };
 }
 
@@ -97,7 +139,7 @@ function renderClusterGraph(plugin, parent, selection) {
     ...new Set((selection.nodes ?? []).filter((id) => adj.has(id))),
   ];
   const selectedIds = allSelectedIds
-    .sort((a, b) => (adj.get(b)?.size ?? 0) - (adj.get(a)?.size ?? 0))
+    .sort((a, b) => Number(b === selection.tag) - Number(a === selection.tag) || (adj.get(b)?.size ?? 0) - (adj.get(a)?.size ?? 0))
     .slice(0, 90);
   const selected = new Set(selectedIds);
   if (!selected.size) return;
@@ -111,7 +153,7 @@ function renderClusterGraph(plugin, parent, selection) {
     ),
   );
   const boundaryContext = new Set();
-  for (const id of selected) {
+  for (const id of selection.exact ? [] : selected) {
     for (const neighbor of adj.get(id) ?? []) {
       if (!selected.has(neighbor)) context.add(neighbor);
     }
@@ -135,9 +177,11 @@ function renderClusterGraph(plugin, parent, selection) {
   // edgeKeys は「u\0v」（u < v）の形の重複防止用のキー。
   const edges = [];
   const edgeKeys = new Set();
+  const allowedEdges = selection.exact ? new Set((selection.links ?? []).map(([a, b]) =>
+    JSON.stringify([a, b].sort()))) : null;
   for (const u of ids) {
     for (const v of adj.get(u) ?? []) {
-      if (idSet.has(v) && u < v) {
+      if (idSet.has(v) && u < v && (!allowedEdges || allowedEdges.has(JSON.stringify([u, v])))) {
         edges.push({
           a: u,
           b: v,
@@ -149,6 +193,7 @@ function renderClusterGraph(plugin, parent, selection) {
     }
   }
   for (const [u, v] of selection.links ?? []) {
+    if (selection.exact) continue; // Model selections contain actual links only.
     const key = u < v ? `${u}\0${v}` : `${v}\0${u}`;
     if (idSet.has(u) && idSet.has(v) && !edgeKeys.has(key)) {
       edges.push({ a: u, b: v, contracted: true });
@@ -166,28 +211,31 @@ function renderClusterGraph(plugin, parent, selection) {
   const panel = parent.createDiv({ cls: "alp-graph-panel" });
   panel.setAttr("role", "dialog");
   panel.setAttr("aria-modal", "true");
-  panel.setAttr("aria-label", "ホットスポットのグラフ");
+  panel.setAttr("aria-label", selection.title ?? t("graph.title"));
   const head = panel.createDiv({ cls: "alp-graph-head" });
   head.createSpan({
-    text: `グラフ表示：中核 ${selected.size}${allSelectedIds.length > selected.size ? ` / ${allSelectedIds.length}` : ""}ノード`,
+    text: t('graph.heading', { shown: selected.size, total: allSelectedIds.length > selected.size ? ` / ${allSelectedIds.length}` : '' }),
   });
   const controls = head.createDiv({ cls: "alp-graph-controls" });
+  if (selection.groups) panel.createDiv({ cls: 'alp-small',
+    text: t('graph.groupHelp', { title: selection.title, tag: selection.tag ? t('graph.tagHelp') : '', limit: allSelectedIds.length > selected.size ? t('graph.limitHelp') : '' }) });
   const zoomOut = controls.createEl("button", {
     text: "−",
-    attr: { "aria-label": "縮小" },
+    attr: { "aria-label": t("graph.zoomOut") },
   });
   const zoomIn = controls.createEl("button", {
     text: "+",
-    attr: { "aria-label": "拡大" },
+    attr: { "aria-label": t("graph.zoomIn") },
   });
   const reset = controls.createEl("button", {
-    text: "全体",
-    attr: { "aria-label": "全体表示" },
+    text: t("graph.fit"),
+    attr: { "aria-label": t("graph.fitAria") },
   });
   const close = head.createEl("button", {
-    text: UI_TEXT.close,
     cls: "alp-graph-close",
+    attr: { type: 'button', title: UI_TEXT.close, 'aria-label': UI_TEXT.close },
   });
+  setIcon(close, 'x');
   const onKeyDown = (event) => {
     if (event.key === "Escape") closeGraph();
   };
@@ -208,12 +256,12 @@ function renderClusterGraph(plugin, parent, selection) {
   document.addEventListener(EVENT.keydown, onKeyDown);
   const graphHelp = panel.createDiv({ cls: "alp-graph-help" });
   const helpButton = graphHelp.createEl("button", {
-    text: "ⓘ 操作方法",
+    text: t("graph.help"),
     cls: "alp-graph-help-button",
   });
   const helpText = graphHelp.createDiv({
     cls: "alp-small alp-graph-help-text",
-    text: "ノードをドラッグして配置を調整できます。ノートをクリックすると編集用タブで開きます。ホイールまたは＋／−で拡大縮小、空白部分のドラッグで表示を移動します。ウィンドウの右下をドラッグするとサイズ変更できます。",
+    text: t("graph.helpText"),
   });
   helpText.hidden = true;
   helpButton.addEventListener(EVENT.click, () => {
@@ -226,14 +274,14 @@ function renderClusterGraph(plugin, parent, selection) {
   svg.setAttribute("role", "img");
   svg.setAttribute(
     "aria-label",
-    "ドラッグして配置を調整できるホットスポットのグラフ",
+    t('graph.aria', { title: selection.title ?? t('graph.title') }),
   );
   svg.classList.add("alp-graph-svg");
   panel.appendChild(svg);
   const scene = document.createElementNS(ns, "g");
   svg.appendChild(scene);
 
-  const centerX = 800,
+  let centerX = 800,
     centerY = 500;
   const nodes = ids.map((id, i) => {
     // Golden-angle seed avoids putting all nodes on a few axes before the force layout starts.
@@ -361,10 +409,15 @@ function renderClusterGraph(plugin, parent, selection) {
   const b = bounds();
   const W = Math.max(1200, b.maxX - b.minX + 160);
   const H = Math.max(760, b.maxY - b.minY + 160);
+  const groupPalette = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#E69F00', '#56B4E9'];
+  const offsetX = W / 2 - (b.minX + b.maxX) / 2;
+  const offsetY = H / 2 - (b.minY + b.maxY) / 2;
   for (const n of nodes) {
-    n.x += 80 - b.minX;
-    n.y += 80 - b.minY;
+    n.x += offsetX;
+    n.y += offsetY;
   }
+  centerX = W / 2;
+  centerY = H / 2;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   const edgeEls = [];
   for (const edge of simEdges) {
@@ -385,7 +438,7 @@ function renderClusterGraph(plugin, parent, selection) {
     g.setAttribute("tabindex", n.id.startsWith("#") ? "-1" : "0");
     if (!n.id.startsWith("#")) {
       g.setAttribute("role", "button");
-      g.setAttribute("aria-label", `ノートを開く: ${n.id}`);
+      g.setAttribute("aria-label", t('graph.openNote', { path: n.id }));
     }
     // 見た目の円より広い透明なヒット領域を用意し、ノードをつかみやすくする。
     const hitArea = document.createElementNS(ns, "circle");
@@ -396,11 +449,13 @@ function renderClusterGraph(plugin, parent, selection) {
     g.appendChild(hitArea);
     const circle = document.createElementNS(ns, "circle");
     circle.setAttribute("r", n.selected ? 9 : 6);
+    const groupIndices = (selection.groups ?? []).flatMap((group, index) => group.nodes.includes(n.id) ? [index] : []);
+    if (groupIndices.length) circle.style.fill = groupPalette[groupIndices[0] % groupPalette.length];
     g.appendChild(circle);
     const label = document.createElementNS(ns, "text");
     label.setAttribute("x", 13);
     label.setAttribute("y", 5);
-    label.textContent = n.label;
+    label.textContent = n.label + (groupIndices.length ? ` ［${groupIndices.map(index => index + 1).join(',')}］` : '');
     label.setAttribute("title", n.id);
     g.appendChild(label);
     const title = document.createElementNS(ns, "title");
@@ -557,14 +612,14 @@ function renderClusterGraph(plugin, parent, selection) {
   }
   const legend = panel.createDiv({ cls: "alp-graph-legend" });
   legend.createSpan({ cls: "alp-graph-dot is-selected" });
-  legend.createSpan({ text: "ホットスポット" });
+  legend.createSpan({ text: t('graph.selected') });
   legend.createSpan({ cls: "alp-graph-dot" });
-  legend.createSpan({ text: "周辺ノード" });
+  legend.createSpan({ text: t("graph.context") });
   legend.createSpan({ cls: "alp-graph-line is-contracted" });
-  legend.createSpan({ text: "縮約経路" });
+  legend.createSpan({ text: t("graph.contracted") });
   if (boundaryLinks.length) {
     legend.createSpan({ cls: "alp-graph-line is-boundary" });
-    legend.createSpan({ text: "境界候補" });
+    legend.createSpan({ text: t("graph.boundary") });
   }
 }
 

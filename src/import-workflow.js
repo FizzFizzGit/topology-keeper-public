@@ -1,3 +1,4 @@
+const { t } = require('./i18n');
 const { Notice } = require("obsidian");
 const path = require("path");
 const crypto = require("crypto");
@@ -21,11 +22,11 @@ class ImportWorkflow {
   // 二重実行を防ぎ、失敗は通知して呼び出し元へ例外を出さない。
   async importFiles(mainNote) {
     if (this.plugin.state.pendingImport) {
-      new Notice("未完了の取り込みがあります。コマンド「未完了の取り込みを復旧」を実行してください。");
+      new Notice(t("import.pending"));
       return;
     }
     if (this.importing) {
-      new Notice("⚠️ 取り込み中です。");
+      new Notice(t("import.busy"));
       return;
     }
     this.importing = true;
@@ -33,9 +34,9 @@ class ImportWorkflow {
       await this.run(mainNote);
     } catch (error) {
       console.error("取り込み失敗:", error);
-      new Notice(`⚠️ 取り込みに失敗しました: ${error.message}`);
+      new Notice(t('import.failed', { error: error.message }));
       if (this.plugin.state.pendingImport)
-        new Notice("作成済みファイルは保持しています。コマンド「未完了の取り込みを復旧」で元ノートへのリンクを復元できます。");
+        new Notice(t("import.retained"));
     } finally {
       this.importing = false;
       this.plugin.scheduleMaint();
@@ -47,12 +48,12 @@ class ImportWorkflow {
     if (this.importing) return;
     const plugin = this.plugin;
     const pending = plugin.state.pendingImport;
-    if (!pending) { new Notice("未完了の取り込みはありません。"); return; }
+    if (!pending) { new Notice(t("import.noPending")); return; }
     this.importing = true;
     try {
       const main = plugin.app.vault.getAbstractFileByPath(pending.mainNotePath);
       if (!main || main.extension !== "md" || Object.values(FOLDERS).some(folder => main.path.startsWith(`${folder}/`)))
-        throw new Error("元ノートが見つからないか管理フォルダ内です。元の場所へ戻してから復旧してください。");
+        throw new Error(t("import.missingSource"));
       const names = [];
       for (const target of pending.paths ?? []) {
         const file = plugin.app.vault.getAbstractFileByPath(target);
@@ -68,9 +69,9 @@ class ImportWorkflow {
       await plugin.saveData(completed);
       delete plugin.state.pendingImport;
       plugin.refreshBaseLabels();
-      new Notice(`取り込みの復旧が完了しました（接続対象${names.length}件）。内容を確認してください。`);
+      new Notice(t('import.recovered', { count: names.length }));
     } catch (error) {
-      new Notice(`復旧できませんでした: ${error.message}`);
+      new Notice(t('import.recoveryFailed', { error: error.message }));
     } finally {
       this.importing = false;
       plugin.scheduleMaint();
@@ -85,14 +86,14 @@ class ImportWorkflow {
 
   async discardRecovery() {
     if (this.importing || !this.plugin.state.pendingImport) return;
-    if (!confirm("未完了の取り込み記録だけを解除します。作成済みファイルは残ります。元ノートへの接続を手動で確認済みの場合に使用してください。よろしいですか？")) return;
+    if (!confirm(t("import.clearConfirm"))) return;
     const { pendingImport, ...completed } = this.plugin.state;
     try {
       await this.plugin.saveData(completed);
       delete this.plugin.state.pendingImport;
-      new Notice("取り込み記録を解除しました。ファイルは保持しています。");
+      new Notice(t("import.cleared"));
     } catch (error) {
-      new Notice(`取り込み記録を解除できませんでした: ${error.message}`);
+      new Notice(t('import.clearFailed', { error: error.message }));
     }
   }
 
@@ -103,9 +104,9 @@ class ImportWorkflow {
     const electron = require("electron");
     const dialog = (electron.remote ?? require("@electron/remote")).dialog;
     const { canceled, filePaths } = await dialog.showOpenDialog({
-      title: "🔗 接続したい外部ファイルを選択してください",
+      title: t("import.select"),
       properties: ["openFile", "multiSelections"],
-      buttonLabel: "一括接続",
+      buttonLabel: t("import.link"),
     });
     if (canceled || filePaths.length === 0) return;
 
@@ -125,7 +126,7 @@ class ImportWorkflow {
       const existingNames = await baseManager.getLinkedBaseNames(mainNote);
       if (existingNames.has(baseName)) {
         new Notice(
-          `このメインノートには「${baseName}」というBaseが既にあります。別の名前を指定してください。`,
+          t('import.duplicateBase', { name: baseName }),
         );
         return;
       }
@@ -180,13 +181,13 @@ class ImportWorkflow {
     }
     new Notice(
       [
-        "🎉 ファイルの登録完了！",
-        `・Vault内ファイル（直接リンク）: ${vaultLinks.length}件`,
-        `・新規メタノート: ${created}件`,
-        `・既存メタノート再利用: ${reused}件`,
-        `・linksへの追記: ${appended}件`,
-        groupBases.length && `・このグループのBase: ${groupBases.length}件`,
-        thumbFailed && `⚠️ サムネイル生成失敗: ${thumbFailed}件`,
+        t("import.done"),
+        t('import.vaultCount', { count: vaultLinks.length }),
+        t('import.createdCount', { count: created }),
+        t('import.reusedCount', { count: reused }),
+        t('import.linkCount', { count: appended }),
+        groupBases.length && t('import.baseCount', { count: groupBases.length }),
+        thumbFailed && t('import.thumbnailFailures', { count: thumbFailed }),
       ]
         .filter(Boolean)
         .join("\n"),

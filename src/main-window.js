@@ -1,3 +1,4 @@
+const { t } = require('./i18n');
 const { setIcon } = require("obsidian");
 
 const nodeLabel = (id) =>
@@ -49,7 +50,9 @@ class MainWindowView {
     for (const [kind, button] of Object.entries(this.indicatorButtons)) {
       const visible = this.api.isDetailVisible(kind);
       button.setAttr("aria-expanded", String(visible));
-      button.setAttr("aria-label", (kind === "orphan" ? "孤立" : "分析結果") + "ウィンドウを" + (visible ? "閉じる" : "開く"));
+      const openIcon = button.querySelector('.alp-indicator-open-icon');
+      if (openIcon) setIcon(openIcon, visible ? 'x' : 'arrow-up-right');
+      button.setAttr("aria-label", t('window.toggle', { name: kind === 'orphan' ? t('common.orphan') : t('window.analysis'), action: visible ? t('window.closeAction') : t('window.openAction') }));
     }
   }
 
@@ -74,9 +77,9 @@ class MainWindowView {
   }
 
   iconButton(parent, icon, label, onClick) {
-    const btn = parent.createDiv({
+    const btn = parent.createEl('button', {
       cls: `clickable-icon alp-btn${icon === "refresh-cw" ? " alp-refresh-btn" : ""}`,
-      attr: { title: label, "aria-label": label },
+      attr: { type: 'button', title: label, "aria-label": label },
     });
     setIcon(btn, icon);
     if (icon === "refresh-cw" && this.api.isMaintSpinning())
@@ -91,11 +94,13 @@ class MainWindowView {
   section(parent, key, title) {
     const descriptions = {
       orphan:
-        "管理対象のメタノート・サムネイル・Baseのうち、対応関係が見つからないものを表示します。\n\n削除操作の前に対象を確認してください。",
+        t("window.isolationInfo"),
+      managedOrphan:
+        t("window.managedInfo"),
       bases:
-        "現在のノートのリンクに登録されているBaseファイルです。\n\nBaseを開く、リンクをコピーする、ノートからリンクを外す操作ができます。リンクを外してもBaseファイル自体は削除されません。",
+        t("window.basesInfo"),
       assets:
-        "現在のノートのリンクに登録されている関連ファイルです。\n\n外部ファイルは名前をクリックすると元ファイルを開きます。各行にマウスを重ねると表示されるメニューから、ファイル名の変更、リンクをコピー、リンクの削除を選べます。見出しのフォルダーアイコンでは、対象を選択して別のフォルダーへまとめて移動できます。リンクを外しても元ファイルは削除されません。",
+        t("window.assetsInfo"),
     };
     const sectionRow = parent.createDiv({ cls: "alp-sec-row" });
     const det = sectionRow.createEl("details", { cls: "alp-sec" });
@@ -111,31 +116,34 @@ class MainWindowView {
       text: "i",
       attr: {
         type: "button",
-        "aria-label": `${title}の説明`,
+        "aria-label": t('window.infoTitle', { title }),
         "aria-expanded": "false",
       },
     });
     const tip = document.body.createDiv({ cls: "alp-info-popover" });
     tip.dataset.owner = sectionRow.closest(".alp-detail-win")?.dataset.infoOwner ?? "main";
-    if (key === "planar") {
+    if (key === "planar" && this.api.getResult?.()?.areaModel) {
+      tip.createEl('p', { text: t("window.areasInfo") });
+      tip.createEl('p', { text: t("window.colorsInfo") });
+    } else if (key === "planar") {
       tip.createEl("p", {
-        text: "このチェックはグラフ構造の特徴を示すもので、分類の正誤を直接判定しません。",
+        text: t("area.legacyInfo"),
       });
       tip.createEl("p", {
-        text: "結果は次の4区分で整理します。関係密度は全ノード間にあり得る辺に対する割合で、現在は25%以上を「密」とする暫定基準です。",
+        text: t("area.legacyDensity"),
       });
       const list = tip.createEl("ul");
       [
-        "密な関係・平面：関係が整理されている可能性",
-        "疎な関係・平面：情報や関連付けが少ない可能性",
-        "密な関係・非平面：話題が複雑に交差している可能性",
-        "疎な関係・非平面：少数の複雑な接続が影響している可能性",
+        t("area.legacyDensePlanar"),
+        t("area.legacySparsePlanar"),
+        t("area.legacyDenseNonplanar"),
+        t("area.legacySparseNonplanar"),
       ].forEach((description) => list.createEl("li", { text: description }));
       tip.createEl("p", {
-        text: "4区分は関係密度と平面性による目安です。平面性を確定できない領域は密度の変化からエリア分けし、密度が高いものをホットスポットとして表示します。いずれも分類の品質を保証しません。",
+        text: t("area.legacyCaveat"),
       });
     } else {
-      tip.setText(descriptions[key] ?? "このセクションの情報を表示します。");
+      tip.setText(descriptions[key] ?? t("window.infoDefault"));
     }
     tip.setAttr("hidden", "hidden");
     let closeTimer = null;
@@ -214,6 +222,7 @@ class MainWindowView {
     const r = this.api.getResult();
     const ext = this.api.computeExternal();
     const sig = JSON.stringify([
+      t('common.areaCandidates'),
       r && [
         r.orphans.map((f) => f.path),
         r.strayThumbs.map((f) => f.path),
@@ -225,6 +234,7 @@ class MainWindowView {
           r.planar.suspect,
           r.planar.safe,
           r.planar.hotspots,
+          r.planar.remainder,
           r.planar.boundaryEdges,
           r.planar.meanDensityChange,
           r.planar.truncated,
@@ -232,6 +242,8 @@ class MainWindowView {
       ],
       r?.analysisError,
       r?.maintenanceReady,
+      r?.areaModel,
+      r?.noteIsolation && [r.noteIsolation.ready, ...['isolated', 'tagOnly', 'allowed'].map(key => r.noteIsolation[key].map(file => file.path))],
       ext && [
         ext.file.path,
         ext.main,
@@ -246,11 +258,11 @@ class MainWindowView {
     this.api.removeInfoPopovers("main");
     el.empty();
 
-    const orphanCount = r
+    const orphanCount = r?.noteIsolation ? r.noteIsolation.ready ? r.noteIsolation.isolated.length : null : r
       ? r.orphans.length + r.strayThumbs.length + r.orphanBases.length
       : null;
-    const crossingCount = r?.planar
-      ? r.planar.safe.length + r.planar.definite.length + r.planar.hotspots.length
+    const crossingCount = r?.areaModel?.parents ? r.areaModel.parents.length : r?.areaModel ? r.areaModel.originalAreas.length : r?.planar
+      ? r.planar.safe.length + r.planar.definite.length + r.planar.hotspots.length + (r.planar.remainder?.length ?? 0)
       : null;
     el.toggleClass("has-issues", (orphanCount ?? 0) > 0);
 
@@ -258,10 +270,10 @@ class MainWindowView {
     const mark = head.createSpan({ cls: "alp-win-mark" });
     setIcon(mark, this.ICON.network);
     head.createSpan({ cls: "alp-win-title", text: "Topology Keeper" });
-    this.iconButton(head, "refresh-cw", "再チェック", () =>
+    this.iconButton(head, "refresh-cw", t("window.recheck"), () =>
       this.api.runMaint(true, true),
     );
-    this.iconButton(head, "locate-fixed", "小窓の位置をリセット", () => {
+    this.iconButton(head, "locate-fixed", t("window.resetMain"), () => {
       this.resetPosition();
       this.api.saveState();
     });
@@ -279,7 +291,7 @@ class MainWindowView {
       text: orphanCount == null ? "…" : String(orphanCount),
     });
     orphan.createDiv({ cls: "alp-indicator-label", text: this.UI_TEXT.orphan });
-    orphan.setAttr("title", "孤立した管理対象ファイルの件数");
+    orphan.setAttr("title", r?.noteIsolation ? t("window.isolationTip") : t("window.managedTip"));
 
     const crossing = indicators.createEl("button", {
       cls: "alp-indicator alp-indicator-crossing",
@@ -296,12 +308,13 @@ class MainWindowView {
     });
     crossing.setAttr(
       "title",
-      "平面・非平面・ホットスポットのエリア数。詳しい根拠は分析結果で確認できます。",
+      t('window.areaTip', { count: crossingCount ?? '…' }),
     );
 
     this.indicatorButtons = { orphan, planar: crossing };
     for (const [kind, button] of Object.entries(this.indicatorButtons)) {
       button.setAttr("type", "button");
+      button.createSpan({ cls: 'alp-indicator-open-icon', attr: { 'aria-hidden': 'true' } });
       button.addEventListener(this.EVENT.click, () => {
         if (this.api.isDetailVisible(kind)) this.api.closeDetail(kind);
         else this.api.openDetail(kind);
@@ -312,7 +325,7 @@ class MainWindowView {
 
     const add = actions.createEl("button", {
       cls: this.CSS_CLASS.alpActionButton,
-      attr: { title: "ファイル追加" },
+      attr: { title: t("window.addFiles") },
     });
     setIcon(add.createSpan(), this.ICON.filePlus);
     const active = this.api.getActiveFile();
@@ -321,8 +334,8 @@ class MainWindowView {
     add.setAttr(
       "aria-label",
       canAdd
-        ? "現在のノートに外部ファイルを追加"
-        : "通常のMarkdownノートを開くとファイルを追加できます",
+        ? t("window.addFilesAria")
+        : t("window.addFilesDisabled"),
     );
     add.addEventListener(this.EVENT.click, () => {
       const file = this.api.getActiveFile();
@@ -331,15 +344,15 @@ class MainWindowView {
 
     const suggest = actions.createEl("button", {
       cls: this.CSS_CLASS.alpActionButton,
-      attr: { title: "タグを提案" },
+      attr: { title: t("window.suggestTags") },
     });
     setIcon(suggest.createSpan(), this.ICON.tags);
     suggest.disabled = !canAdd;
     suggest.setAttr(
       "aria-label",
       canAdd
-        ? "現在のノートにタグを提案"
-        : "通常のMarkdownノートを開くとタグを提案できます",
+        ? t("window.suggestTagsAria")
+        : t("window.suggestTagsDisabled"),
     );
     suggest.addEventListener(this.EVENT.click, () => {
       const file = this.api.getActiveFile();
@@ -348,12 +361,12 @@ class MainWindowView {
 
     const createBase = actions.createEl("button", {
       cls: this.CSS_CLASS.alpActionButton,
-      attr: { title: "Baseを作成" },
+      attr: { title: t("window.createBase") },
     });
     setIcon(createBase.createSpan(), this.ICON.base);
     createBase.setAttr(
       "aria-label",
-      "UUID付きのBaseファイルを単体作成し、タグ条件を設定",
+      t("window.createBaseAria"),
     );
     createBase.addEventListener(this.EVENT.click, () =>
       this.api.createBaseStandalone(),
@@ -366,7 +379,7 @@ class MainWindowView {
     });
     const folderIcon = managerSummary.createSpan();
     setIcon(folderIcon, this.ICON.folder);
-    managerSummary.createSpan({ text: "ファイル管理" });
+    managerSummary.createSpan({ text: t("window.fileManagement") });
     manager.addEventListener(this.EVENT.toggle, () => {
       if (this.state.sections.fileManagement === manager.open) return;
       this.state.sections.fileManagement = manager.open;
@@ -404,7 +417,7 @@ class MainWindowView {
     for (const child of body.children) {
       contentBottom = Math.max(
         contentBottom,
-        child.getBoundingClientRect().bottom - bodyRect.top,
+        child.getBoundingClientRect().bottom - bodyRect.top + (body.scrollTop ?? 0),
       );
     }
     const bodyStyle = getComputedStyle(body);

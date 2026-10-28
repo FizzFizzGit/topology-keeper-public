@@ -1,3 +1,4 @@
+const { t } = require('./i18n');
 const { Notice, TFile } = require("obsidian");
 
 // 孤立メタノート・サムネイル・Base の削除操作をまとめる。
@@ -34,7 +35,7 @@ async function trashMeta(plugin, file) {
 
 function canDelete(plugin) {
   if (plugin.importWorkflow?.importing || plugin.state?.pendingImport || plugin.computeOrphans().ready === false) {
-    new Notice("取り込み中・未完了の取り込み・ノートの解析待ちのため削除できません。取り込みの復旧と解析完了後に再チェックしてください。");
+    new Notice(t("cleanup.paused"));
     return false;
   }
   return true;
@@ -44,17 +45,17 @@ async function trashOne(plugin, file) {
   if (!canDelete(plugin)) return;
   if (
     !confirm(
-      `「${plugin.metaLabel(file)}」のメタノートをゴミ箱へ移動します（サムネイルがあれば一緒に）。よろしいですか？`,
+      t('cleanup.noteConfirm', { name: plugin.metaLabel(file) }),
     )
   )
     return;
   if (!canDelete(plugin)) return;
   if (!await trashMeta(plugin, file)) {
-    new Notice("このメタノートは孤立していないか、既に削除されています。");
+    new Notice(t("cleanup.noteChanged"));
     plugin.maintenance.run(true);
     return;
   }
-  new Notice("🗑️ ゴミ箱へ移動しました。");
+  new Notice(t("cleanup.trashed"));
   plugin.maintenance.run(true);
 }
 
@@ -63,14 +64,13 @@ async function trashOrphans(plugin) {
   if (!canDelete(plugin)) return;
   const fresh = plugin.computeOrphans();
   if (fresh.orphans.length + fresh.strayThumbs.length === 0) {
-    new Notice("削除対象はありません。");
+    new Notice(t("cleanup.none"));
     plugin.maintenance.run(true);
     return;
   }
   if (
     !confirm(
-      `メタノート ${fresh.orphans.length} 件（対応サムネイル含む）と、` +
-        `単独サムネイル ${fresh.strayThumbs.length} 件をゴミ箱へ移動します。よろしいですか？`,
+      t('cleanup.bulkConfirm', { notes: fresh.orphans.length, images: fresh.strayThumbs.length }),
     )
   )
     return;
@@ -87,7 +87,7 @@ async function trashOrphans(plugin) {
     }
   }
   new Notice(
-    `🗑️ メタノート ${removedMeta} 件、単独サムネイル ${removedThumbs} 件を削除しました。`,
+    t('cleanup.bulkDone', { notes: removedMeta, images: removedThumbs }),
   );
   plugin.maintenance.run(true);
 }
@@ -96,19 +96,19 @@ async function trashOrphanBase(plugin, file) {
   if (!canDelete(plugin)) return;
   const fresh = plugin.computeOrphans();
   if (!fresh.orphanBases.some((candidate) => candidate.path === file.path)) {
-    new Notice("このBaseは孤立していないか、既に削除されています。");
+    new Notice(t("cleanup.baseChanged"));
     plugin.maintenance.run(true);
     return;
   }
   if (
     !confirm(
-      `孤立Base「${plugin.baseLabels.get(file.path) ?? file.basename}」をゴミ箱へ移動しますか？\n${file.path}`,
+      t('cleanup.baseConfirm', { name: plugin.baseLabels.get(file.path) ?? file.basename, path: file.path }),
     )
   )
     return;
   if (!canDelete(plugin) || !plugin.computeOrphans().orphanBases.some(candidate => candidate.path === file.path)) return;
   await plugin.app.fileManager.trashFile(file);
-  new Notice("🗑️ 孤立Baseをゴミ箱へ移動しました。");
+  new Notice(t("cleanup.baseDone"));
   plugin.maintenance.run(true);
 }
 
@@ -116,13 +116,13 @@ async function trashOrphanBases(plugin) {
   if (!canDelete(plugin)) return;
   const fresh = plugin.computeOrphans();
   if (fresh.orphanBases.length === 0) {
-    new Notice("孤立Baseはありません。");
+    new Notice(t("cleanup.noBases"));
     plugin.maintenance.run(true);
     return;
   }
   if (
     !confirm(
-      `孤立Base ${fresh.orphanBases.length} 件をゴミ箱へ移動しますか？\n\n${fresh.orphanBases.map((file) => file.path).join("\n")}`,
+      t('cleanup.basesConfirm', { count: fresh.orphanBases.length, paths: fresh.orphanBases.map(file => file.path).join('\n') }),
     )
   )
     return;
@@ -135,7 +135,7 @@ async function trashOrphanBases(plugin) {
     }
   }
   new Notice(
-    `🗑️ 孤立Base ${removed} 件をゴミ箱へ移動しました。`,
+    t('cleanup.basesDone', { count: removed }),
   );
   plugin.maintenance.run(true);
 }

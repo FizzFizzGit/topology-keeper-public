@@ -7,7 +7,7 @@ const { loadSettings } = require('../src/plugin-settings');
 function detailFixture(state) {
   const context = {
     module: { exports: {} },
-    require: id => id === 'obsidian' ? {} : require('../src/graph-analysis'),
+    require: id => id === 'obsidian' ? {} : id === './i18n' ? { t: require('../src/i18n-core').createTranslator('ja') } : require('../src/graph-analysis'),
     window: { innerWidth: 1200, innerHeight: 800 },
   };
   vm.runInNewContext(fs.readFileSync(require.resolve('../src/detail-window'), 'utf8'), context);

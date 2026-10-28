@@ -1,3 +1,4 @@
+const { t } = require('./i18n');
 const { Notice } = require("obsidian");
 const { findMetaThumbnail } = require("./external-file-data");
 const { pathFromSource, toSourceUrl } = require("./source-url");
@@ -23,22 +24,22 @@ class ExternalFileActions {
   // メタノートの cover が指す、管理対象サムネイルの TFile を返す。
   showRename(entry) {
     const sourcePath = pathFromSource(entry.source);
-    if (!sourcePath) return new Notice("ローカルファイルの参照ではありません。");
+    if (!sourcePath) return new Notice(t("files.notLocal"));
     const RenameExternalModal = require("./rename-external-modal");
     new RenameExternalModal(this.app, path.basename(sourcePath), async (name) => {
       await this.renameExternal(entry, name);
-      new Notice("外部ファイルの名前を変更しました。");
+      new Notice(t("files.renamed"));
     }).open();
   }
 
   async renameExternal(entry, name) {
-    if (this.moving) throw new Error("ファイルの移動処理中です。");
-    if (this.renaming) throw new Error("名前の変更処理中です。");
+    if (this.moving) throw new Error(t("files.moveBusy"));
+    if (this.renaming) throw new Error(t("files.renameBusy"));
     if (typeof name !== "string" || !name.trim() || /[<>:"/\\|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name)
       || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name))
-      throw new Error("使用できないファイル名です。");
+      throw new Error(t("files.invalidName"));
     const original = pathFromSource(entry.source);
-    if (!original) throw new Error("ローカルファイルの参照ではありません。");
+    if (!original) throw new Error(t("files.notLocal"));
     const target = path.join(path.dirname(original), name);
     return this.relocateExternal(entry, target);
   }
@@ -49,15 +50,15 @@ class ExternalFileActions {
   }
 
   async moveExternalFiles(entries, folder) {
-    if (this.moving || this.renaming) throw new Error("別のファイル操作が進行中です。");
-    if (!entries.length) throw new Error("移動するファイルを選択してください。");
-    if (!path.isAbsolute(folder) || /^[\\/]{2}/.test(folder)) throw new Error("ローカルの移動先フォルダーを選択してください。");
+    if (this.moving || this.renaming) throw new Error(t("files.busy"));
+    if (!entries.length) throw new Error(t("files.selectFiles"));
+    if (!path.isAbsolute(folder) || /^[\\/]{2}/.test(folder)) throw new Error(t("files.selectLocalDestination"));
     this.moving = true;
     const completed = [];
     try {
       const destination = await fs.promises.realpath(folder);
       if (!(await fs.promises.stat(destination)).isDirectory() || /^[\\/]{2}/.test(destination))
-        throw new Error("ローカルのフォルダーを選択してください。");
+        throw new Error(t("files.selectLocalFolder"));
       const targets = new Set();
       const originals = new Set();
       const plans = [];
@@ -65,19 +66,19 @@ class ExternalFileActions {
       // 全件を先に検証し、衝突があれば移動を開始しない。
       for (const entry of entries) {
         const original = pathFromSource(entry.source);
-        if (!original) throw new Error("参照先が不正なファイルがあります。");
+        if (!original) throw new Error(t("files.invalidReference"));
         if (originals.has(key(original))) continue;
         originals.add(key(original));
         const stat = await fs.promises.lstat(original);
-        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`通常のファイルではありません: ${original}`);
+        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(t('files.notRegularPath', { path: original }));
         const target = path.join(destination, path.basename(original));
         if (key(await fs.promises.realpath(path.dirname(original))) === key(destination))
-          throw new Error(`既に移動先フォルダーにあります: ${original}`);
-        if (targets.has(key(target))) throw new Error(`選択したファイルの名前が重複しています: ${path.basename(target)}`);
+          throw new Error(t('files.alreadyThere', { path: original }));
+        if (targets.has(key(target))) throw new Error(t('files.duplicateNames', { name: path.basename(target) }));
         targets.add(key(target));
         try {
           await fs.promises.lstat(target);
-          throw new Error(`移動先に同名のファイルがあります: ${target}`);
+          throw new Error(t('files.conflictPath', { path: target }));
         } catch (error) { if (error.code !== "ENOENT") throw error; }
         plans.push({ entry, target });
       }
@@ -95,22 +96,22 @@ class ExternalFileActions {
   }
 
   async relocateExternal(entry, target) {
-    if (this.renaming) throw new Error("別のファイル操作が進行中です。");
+    if (this.renaming) throw new Error(t("files.busy"));
     const original = pathFromSource(entry.source);
-    if (!original) throw new Error("ローカルファイルの参照ではありません。");
+    if (!original) throw new Error(t("files.notLocal"));
     if (target === original) return;
     this.renaming = true;
     const changed = [];
     let linked = false;
     try {
       const stat = await fs.promises.lstat(original);
-      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("通常のファイルだけ名前を変更できます。");
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(t("files.regularOnly"));
       const references = this.app.vault.getMarkdownFiles().filter(file => {
         if (!file.path.startsWith(`${this.FOLDERS.meta}/`)) return false;
         const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
         return pathFromSource(fm?.source) === original || pathFromSource(fm?.Source) === original;
       });
-      if (!references.some(file => file.path === entry.file.path)) throw new Error("参照先が更新されています。表示を更新してからやり直してください。");
+      if (!references.some(file => file.path === entry.file.path)) throw new Error(t("files.staleReference"));
       // 排他的にコピーし、参照の更新が完了してから元の名前を削除する。
       // 宛先が存在する場合は上書きせず失敗する。
       await fs.promises.copyFile(original, target, fs.constants.COPYFILE_EXCL);
@@ -129,7 +130,7 @@ class ExternalFileActions {
       }
       const current = await fs.promises.lstat(original);
       if (current.ino !== stat.ino || current.size !== stat.size || current.mtimeMs !== stat.mtimeMs)
-        throw new Error("処理中に元ファイルが変更されました。もう一度やり直してください。");
+        throw new Error(t("files.changedDuringOperation"));
       await fs.promises.unlink(original);
     } catch (error) {
       let rollbackFailed = false;
@@ -145,9 +146,9 @@ class ExternalFileActions {
       if (linked && !rollbackFailed) {
         try { await fs.promises.unlink(target); } catch { rollbackFailed = true; }
       }
-      if (rollbackFailed) throw new Error(`参照の復元を完了できませんでした。元ファイルと変更先を確認してください: ${original} / ${target}`);
-      if (error.code === "EEXIST") throw new Error("同名のファイルが存在します。別の名前を指定してください。");
-      throw new Error(`ファイルを変更できませんでした: ${error.message}`);
+      if (rollbackFailed) throw new Error(t('files.rollbackFailed', { source: original, target }));
+      if (error.code === "EEXIST") throw new Error(t('files.nameExists'));
+      throw new Error(t('files.changeFailed', { error: error.message }));
     } finally {
       this.renaming = false;
     }
@@ -167,15 +168,15 @@ class ExternalFileActions {
     try {
       let sourcePath = pathFromSource(source);
       if (!sourcePath || BLOCKED_EXTENSIONS.has(path.extname(sourcePath).toLowerCase()))
-        throw new Error("ローカルファイルのURLではないか、実行形式のため開けません。");
+        throw new Error(t("files.blocked"));
       sourcePath = await fs.promises.realpath(sourcePath);
       if (/^[\\/]{2}/.test(sourcePath) || BLOCKED_EXTENSIONS.has(path.extname(sourcePath).toLowerCase()))
-        throw new Error("ネットワークパスや実行形式へのリンクは開けません。");
-      if (!(await fs.promises.stat(sourcePath)).isFile()) throw new Error("通常のファイルではありません。");
+        throw new Error(t("files.blockedNetwork"));
+      if (!(await fs.promises.stat(sourcePath)).isFile()) throw new Error(t("files.notRegular"));
       const error = await require("electron").shell.openPath(sourcePath);
       if (error) throw new Error(error);
     } catch (error) {
-      new Notice(`⚠️ 元ファイルを開けませんでした: ${error.message}`);
+      new Notice(t('files.openFailed', { error: error.message }));
     }
   }
 
@@ -187,7 +188,7 @@ class ExternalFileActions {
       trashTargets.push(entry.file, ...(thumb instanceof this.TFile ? [thumb] : []));
       if (
         !confirm(
-          `「${entry.label}」のメタノートとサムネイルをゴミ箱へ移動します。よろしいですか？`,
+          t('files.trashConfirm', { name: entry.label }),
         )
       )
         return;

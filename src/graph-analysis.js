@@ -3,6 +3,16 @@
 
 const HOTSPOT_DENSITY_THRESHOLD = 0.25;
 const HOTSPOT_MIN_NODES = 3;
+const REMAINDER_LABELS = {
+  low: '低密度・平面性未判定',
+  small: '小規模・平面性未判定',
+  boundary: '境界部分・平面性未判定',
+};
+function getRemainderKind(area) {
+  if (area.nodes.length < HOTSPOT_MIN_NODES) return 'small';
+  const density = area.linkDensity ?? (2 * (area.edges ?? area.links?.length ?? 0) / (area.nodes.length * (area.nodes.length - 1)));
+  return density < HOTSPOT_DENSITY_THRESHOLD ? 'low' : 'boundary';
+}
 
 // ノートとタグの無向グラフを作る。頂点はノートのパス、またはタグ（"#タグ" 形式の文字列）。
 // 辺は「ノート間の実リンク」と「ノートとタグの付与関係」。管理フォルダ内のファイルは頂点にしない。
@@ -157,6 +167,11 @@ async function reduceGraph(adj, tick) {
   // 次数0/1の頂点を除き、次数2の頂点を抑制する。
   // いずれも平面性を変えず、K5/K3,3 の細分を検出しやすくする。
   const graph = new Map([...adj].map(([u, ns]) => [u, new Set(ns)]));
+  const edgeKey = (a, b) => JSON.stringify([a, b].sort());
+  const witnesses = new Map();
+  for (const [u, ns] of adj) for (const v of ns) {
+    if (u < v) witnesses.set(edgeKey(u, v), new Set([u, v]));
+  }
   const queue = [...graph.keys()];
   let head = 0;
   const enqueueIfSmall = (u) => {
@@ -176,13 +191,19 @@ async function reduceGraph(adj, tick) {
     if (ns.length === 2) {
       const [a, b] = ns;
       if (a !== b && graph.has(a) && graph.has(b)) {
+        const key = edgeKey(a, b);
+        const source = new Set([...(witnesses.get(key) ?? []),
+          ...(witnesses.get(edgeKey(a, u)) ?? [a, u]),
+          ...(witnesses.get(edgeKey(u, b)) ?? [u, b])]);
+        witnesses.set(key, source);
         graph.get(a).add(b);
         graph.get(b).add(a);
       }
     }
+    for (const v of ns) witnesses.delete(edgeKey(u, v));
     for (const v of ns) enqueueIfSmall(v);
   }
-  return graph;
+  return { graph, witnesses };
 }
 
 // Tarjan法で2連結成分（ブロック）を抽出する。再帰を使わず大きなVaultでのスタック溢れを避ける。
@@ -262,8 +283,10 @@ function inducedAdjacency(graph, nodes) {
 
 // 入力の2連結成分を、内部リンクの集中度（モジュラリティ）が増すまとまりへ分割する。
 // 重み付き縮約を反復し、同じ密度の領域間も分離する。元の頂点集合を返し、入力は変更しない。
-async function splitStructuralAreas(graph, tick) {
-  let weighted = new Map([...graph].map(([u, ns]) => [u, new Map([...ns].map(v => [v, 1]))]));
+async function splitStructuralAreas(graph, tick, tagWeights = null, edgeWeights = null, boundaryRatio = 1) {
+  const edgeWeight = (u, v) => edgeWeights?.get(JSON.stringify([u, v].sort()))
+    ?? Math.min(tagWeights?.get(u) ?? 1, tagWeights?.get(v) ?? 1);
+  let weighted = new Map([...graph].map(([u, ns]) => [u, new Map([...ns].map(v => [v, edgeWeight(u, v)]))]));
   let members = new Map([...graph.keys()].map(u => [u, new Set([u])]));
   const total = [...weighted.values()].reduce((sum, ns) => sum + [...ns.values()].reduce((a, b) => a + b, 0), 0);
   if (!total) return [...members.values()];
@@ -324,17 +347,54 @@ async function splitStructuralAreas(graph, tick) {
         let outside = 0;
         for (const u of group) {
           for (const v of graph.get(u)) {
-            if (group.has(v)) inside++;
-            else outside++;
+            if (group.has(v)) inside += edgeWeight(u, v);
+            else outside += edgeWeight(u, v);
           }
         }
-        if (group.size < 3 || inside / 2 <= outside) return [new Set(graph.keys())];
+        if (group.size < 3 || inside / 2 <= outside * boundaryRatio) return [new Set(graph.keys())];
       }
       return groups;
     }
     weighted = nextGraph;
     members = nextMembers;
   }
+}
+
+// Preserve well-supported note communities independently of tag hubs. Shared
+// tags can belong to several areas; their cross-area relation stays in the
+// untouched adjacency for buildAreaHierarchy/partial graphs.
+async function splitTagIndependentAreas(graph, original, witnesses, tick) {
+  if (![...graph.keys()].some(node => node.startsWith('#'))) return null;
+  const notes = new Map();
+  let work = 0;
+  for (const [node, neighbors] of graph) {
+    if (node.startsWith('#')) continue;
+    const direct = new Set();
+    for (const other of neighbors) {
+      if (++work % 200 === 0) await tick();
+      if (other.startsWith('#')) continue;
+      const route = witnesses.get(JSON.stringify([node, other].sort()));
+      if (original.get(node)?.has(other) || route && [...route].every(id => !id.startsWith('#'))) direct.add(other);
+    }
+    notes.set(node, direct);
+  }
+  if (notes.size < 6) return null;
+  // Each note's internal degree must outweigh its external degree in aggregate.
+  // Count both endpoints of internal links, as for modularity above.
+  const groups = await splitStructuralAreas(notes, tick, null, null, 0.5);
+  if (groups.length < 2 || groups.some(group => group.size < 3)) return null;
+  const assignedTags = new Set();
+  for (const group of groups) {
+    const tags = new Set();
+    for (const note of group) for (const other of graph.get(note) ?? []) {
+      if (++work % 200 === 0) await tick();
+      if (other.startsWith('#')) tags.add(other);
+    }
+    for (const tag of tags) { group.add(tag); assignedTags.add(tag); }
+  }
+  // Do not silently discard tag-only structures that this decomposition cannot cover.
+  if ([...graph.keys()].some(node => node.startsWith('#') && !assignedTags.has(node))) return null;
+  return groups;
 }
 
 // 平面性未確定の成分を、近傍密度の変化から分割してホットスポットを返す。
@@ -433,6 +493,39 @@ async function findDensityHotspots(graph, nodes, threshold, tick) {
   return { areas, boundaryEdges, meanChange };
 }
 
+// Hotspots and the remainder partition the original vertices of an undetermined
+// finding. Boundary paths omitted by density splitting belong to the remainder.
+async function undeterminedRemainder(adjacency, finding, hotspots, tick) {
+  const covered = new Set(hotspots.flatMap(area => area.originalNodes ?? area.nodes));
+  const remaining = new Set((finding.originalNodes ?? finding.nodes).filter(node => !covered.has(node)));
+  const areas = [];
+  let work = 0;
+  while (remaining.size) {
+    await tick();
+    const nodes = [remaining.values().next().value];
+    remaining.delete(nodes[0]);
+    for (let i = 0; i < nodes.length; i++) {
+      for (const neighbor of adjacency.get(nodes[i]) ?? []) {
+        if (++work % 200 === 0) await tick();
+        if (remaining.delete(neighbor)) nodes.push(neighbor);
+      }
+    }
+    nodes.sort();
+    const members = new Set(nodes);
+    const links = [];
+    for (const node of nodes) for (const neighbor of adjacency.get(node) ?? []) {
+      if (++work % 200 === 0) await tick();
+      if (node < neighbor && members.has(neighbor)) links.push([node, neighbor]);
+    }
+    const n = nodes.length;
+    areas.push({ nodes, originalNodes: [...nodes], links, edges: links.length,
+      density: n >= 3 ? links.length / (3 * n - 6) : 0,
+      linkDensity: n >= 2 ? 2 * links.length / (n * (n - 1)) : 0,
+      sourceSuspectNodes: [...finding.nodes].sort() });
+  }
+  return areas;
+}
+
 // グラフを平面性の観点で分析し、平面性と密度によるエリア候補を返す。
 //
 // 【入力】
@@ -459,13 +552,36 @@ async function findDensityHotspots(graph, nodes, threshold, tick) {
 //   次数2の頂点は両隣をつなぐ1本の辺に置き換える。そのため links には、元の adj には存在しない辺
 //   （取り除かれた頂点を飛び越える辺）が含まれる。graph-view.js はそれを「縮約された辺」として区別して描く。
 //   戻り値は maintenance-workflow.js が maint.result.planar に保持し、詳細窓の「平面性」欄で表示する。保存はしない。
-async function findNonPlanar(adj, tick, maxFindings = 200) {
-  const reduced = await reduceGraph(adj, tick);
+//   各領域の originalNodes は、その領域内の縮約辺が表す元の頂点も含む。
+//   次数0/1として取り除かれた枝は領域に含めず、境界を越えて所属を推測しない。
+async function findNonPlanar(adj, tick, maxFindings = 200, { tagWeights = null } = {}) {
+  const { graph: reduced, witnesses } = await reduceGraph(adj, tick);
+  const edgeWeights = new Map();
+  if (tagWeights) {
+    let work = 0;
+    for (const [key, nodes] of witnesses) {
+      let weight = 1;
+      for (const node of nodes) {
+        if (++work % 200 === 0) await tick();
+        weight = Math.min(weight, tagWeights.get(node) ?? 1);
+      }
+      edgeWeights.set(key, weight);
+    }
+  }
+  const expand = item => {
+    const originals = new Set(item.nodes);
+    for (const [a, b] of item.links) {
+      for (const node of witnesses.get(JSON.stringify([a, b].sort())) ?? []) originals.add(node);
+    }
+    item.originalNodes = [...originals].sort();
+    return item;
+  };
   const blocks = await findBiconnectedComponents(reduced, tick);
   const areas = [];
   for (const block of blocks) {
     const graph = inducedAdjacency(reduced, block);
-    const groups = await splitStructuralAreas(graph, tick);
+    const groups = await splitTagIndependentAreas(graph, adj, witnesses, tick)
+      ?? await splitStructuralAreas(graph, tick, tagWeights, edgeWeights);
     // 分割でできた橋や関節点も再評価し、独立した領域として扱う。
     for (const group of groups) {
       const subgraph = inducedAdjacency(graph, group);
@@ -480,6 +596,7 @@ async function findNonPlanar(adj, tick, maxFindings = 200) {
     suspect: [],
     safe: [],
     hotspots: [],
+    remainder: [],
     boundaryEdges: [],
     meanDensityChange: 0,
     truncated: false,
@@ -526,7 +643,7 @@ async function findNonPlanar(adj, tick, maxFindings = 200) {
         if (u < v) links.push([u, v]);
       }
     }
-    const item = {
+    const item = expand({
       nodes,
       edges,
       links,
@@ -536,7 +653,7 @@ async function findNonPlanar(adj, tick, maxFindings = 200) {
       degree3,
       edgeBoundExceeded,
       exactPatternFound,
-    };
+    });
     if (edgeBoundExceeded || exactPatternFound) {
       result.definite.push(item);
     } else if (degree4 < 5 && degree3 < 6) {
@@ -551,7 +668,9 @@ async function findNonPlanar(adj, tick, maxFindings = 200) {
         HOTSPOT_DENSITY_THRESHOLD,
         tick,
       );
-      result.hotspots.push(...hotspotResult.areas);
+      const hotspots = hotspotResult.areas.map(expand);
+      result.hotspots.push(...hotspots);
+      result.remainder.push(...await undeterminedRemainder(adj, item, hotspots, tick));
       result.boundaryEdges.push(...hotspotResult.boundaryEdges);
       result.meanDensityChange +=
         hotspotResult.meanChange * (graph.size > 1 ? edges : 0);
@@ -579,5 +698,10 @@ async function findNonPlanar(adj, tick, maxFindings = 200) {
 module.exports = {
   buildAdjacency,
   findNonPlanar,
+  findBiconnectedComponents,
+  splitStructuralAreas,
+  undeterminedRemainder,
+  getRemainderKind,
+  REMAINDER_LABELS,
   HOTSPOT_DENSITY_THRESHOLD,
 };

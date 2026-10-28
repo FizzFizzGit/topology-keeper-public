@@ -1,3 +1,4 @@
+const { t } = require('./i18n');
 // 外部ファイル管理欄の表示。操作そのものはプラグイン本体の既存メソッドへ委譲する。
 //
 // 【入力】
@@ -26,26 +27,26 @@ function createEditMenu(plugin, row, entry, mainFile) {
   row.setAttr("aria-expanded", "false");
   const items = [];
   if (entry.kind === "asset" && entry.source) {
-    items.push({ title: "ファイル名の変更", icon: "pencil", action: () => plugin.externalFileActions.showRename(entry) });
+    items.push({ title: t("files.rename"), icon: "pencil", action: () => plugin.externalFileActions.showRename(entry) });
   }
   if (entry.file) {
-    items.push({ title: "リンクをコピー", icon: "copy", action: () => plugin.copyInternalLink(entry.file) });
+    items.push({ title: t("files.copy"), icon: "copy", action: () => plugin.copyInternalLink(entry.file) });
   }
-  items.push({ title: "リンクの削除", icon: "unlink", action: () => plugin.externalFileActions.removeLink(mainFile, entry) });
+  items.push({ title: t("files.unlink"), icon: "unlink", action: () => plugin.externalFileActions.removeLink(mainFile, entry) });
   attachHoverMenu(row, row, items, entry.label);
 }
 
 function renderExternalFiles(plugin, manager, ext, { CSS_CLASS, EVENT, section, iconButton }) {
     if (!ext) {
       const note = manager.createDiv({ cls: CSS_CLASS.alpEmpty });
-      note.setText("ノートを開くと、関連ファイルを管理できます");
+      note.setText(t("files.openNoteHint"));
     }
     const bases = ext ? ext.entries.filter((e) => e.kind === "base") : [];
     const files = ext ? ext.entries.filter((e) => e.kind !== "base") : [];
 
     const baseSec = section(manager, "bases", `Base (${bases.length})`);
     if (bases.length === 0) {
-      baseSec.createDiv({ cls: CSS_CLASS.alpEmpty, text: "Baseはありません" });
+      baseSec.createDiv({ cls: CSS_CLASS.alpEmpty, text: t("files.noBases") });
     } else {
       for (const entry of bases) {
         const row = baseSec.createDiv({ cls: "alp-row alp-base" });
@@ -64,17 +65,17 @@ function renderExternalFiles(plugin, manager, ext, { CSS_CLASS, EVENT, section, 
     const sec = section(
       manager,
       "assets",
-      `リンクファイル (${fileCount})`,
+      t('files.linkedTitle', { count: fileCount }),
     );
     const movable = files.filter(entry => entry.kind === "asset" && entry.source);
     if (movable.length > 0) {
       const move = sec.sectionActions.createEl("button", {
         cls: "clickable-icon alp-move-files-button",
-        attr: { type: "button", "aria-label": "外部ファイルを移動" },
+        attr: { type: "button", "aria-label": t("files.move") },
       });
       setIcon(move, "folder");
       sec.sectionActions.insertBefore(move, sec.sectionActions.querySelector(".alp-info-wrap"));
-      setTooltip(move, "外部ファイルを移動");
+      setTooltip(move, t("files.move"));
       move.addEventListener(EVENT.click, (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -84,7 +85,7 @@ function renderExternalFiles(plugin, manager, ext, { CSS_CLASS, EVENT, section, 
     if (files.length === 0) {
       sec.createDiv({
         cls: CSS_CLASS.alpEmpty,
-        text: "関連ファイルはありません",
+        text: t("files.none"),
       });
       return;
     }

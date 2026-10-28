@@ -1,3 +1,4 @@
+const { t } = require('./i18n');
 // タグ提案の流れをまとめる。特徴抽出と各スコア計算は個別アルゴリズムのモジュールに委譲する。
 const { Modal } = require("obsidian");
 const { TAG_SUGGEST } = require("./tag-suggest-config");
@@ -7,9 +8,11 @@ const { structureSimilarity } = require("./tag-suggest-structure");
 const { createBm25Index } = require("./tag-suggest-bm25");
 const { createTagSvmTrainer } = require("./tag-suggest-svm");
 
-async function computeTagSuggestions(app, target, isManaged, stopWords = []) {
+async function prepareTagCorpus(app, files, corpusCache) {
+    const snapshot = corpusCache?.snapshot(app, files);
+    const retained = corpusCache?.get(snapshot);
+    if (retained) return retained;
     // 対象ノートと管理対象外ノートを読み込む。Vaultのファイル名は特徴量には使わない。
-    const files = app.vault.getMarkdownFiles().filter((file) => file.path === target.path || !isManaged(file));
     const sources = [];
     for (const file of files) {
         const raw = await app.vault.cachedRead(file);
@@ -24,11 +27,20 @@ async function computeTagSuggestions(app, target, isManaged, stopWords = []) {
     for (const source of sources) {
         docs.set(source.path, await buildTagDoc(app, source.file, source.raw, compoundWhitelist));
     }
+    const value = { docs, index: createBm25Index(docs, TAG_SUGGEST.bm25) };
+    const latest = corpusCache?.snapshot(app, files);
+    if (snapshot && latest?.key === snapshot.key && latest.revision === snapshot.revision) corpusCache.set(snapshot, value);
+    return value;
+}
+
+async function computeTagSuggestions(app, target, isManaged, stopWords = [], corpusCache = null) {
+    const files = app.vault.getMarkdownFiles().filter((file) => file.path === target.path || !isManaged(file));
+    const { docs, index } = await prepareTagCorpus(app, files, corpusCache);
     const me = docs.get(target.path);
     if (!me) return [];
 
     // BM25F語彙スコアと文書構成スコアを合成し、タグ投票に使う近傍を順位付けする。
-    const { df, vectors, cosine } = createBm25Index(docs, TAG_SUGGEST.bm25);
+    const { df, vectors, cosine } = index;
     const myVector = vectors.get(target.path);
     const similarDocs = [];
     for (const doc of docs.values()) {
@@ -116,9 +128,9 @@ async function computeTagSuggestions(app, target, isManaged, stopWords = []) {
         const spread = (df.get(term) ?? 1) >= 2 ? 1 : 0.6;
         const boost = 1 + TAG_SUGGEST.newBoostMax * sourceWeight;
         const reasons = [];
-        if (sourceWeight) reasons.push("見出しに含まれる");
-        if (bodyOk) reasons.push(`本文に${TAG_SUGGEST.newMinBody}回以上出現`);
-        if ((df.get(term) ?? 1) >= 2) reasons.push("複数のノートに出現");
+        if (sourceWeight) reasons.push(t("tags.inHeading"));
+        if (bodyOk) reasons.push(t('tags.repeated', { count: TAG_SUGGEST.newMinBody }));
+        if ((df.get(term) ?? 1) >= 2) reasons.push(t("tags.multipleNotes"));
         fresh.push({ tag: term, weight: weight * spread * boost, why: reasons });
     }
     fresh.sort((a, b) => b.weight - a.weight);
@@ -139,7 +151,7 @@ class TagSuggestModal extends Modal {
     }
     onOpen() {
         const { contentEl } = this;
-        contentEl.createEl("h3", { text: `タグの提案：${this.file.basename}` });
+        contentEl.createEl("h3", { text: t('tags.title', { name: this.file.basename }) });
         const checks = [];
         const addRows = (items, heading, isNew) => {
             if (!items.length) return;
@@ -150,25 +162,25 @@ class TagSuggestModal extends Modal {
                 const checkbox = label.createEl("input", { attr: { type: "checkbox" } });
                 // 既存タグだけ適合度に応じて初期選択し、新規候補は誤追加防止のため未選択にする。
                 checkbox.checked = !isNew && item.score >= TAG_SUGGEST.autoCheck;
-                label.createSpan({ text: ` #${item.tag}（${isNew ? "候補内の相対値" : "総合適合度"} ${Math.round(item.score * 100)}%）` });
+                label.createSpan({ text: t('tags.item', { tag: item.tag, label: isNew ? t('tags.relativeScore') : t('tags.overallScore'), score: Math.round(item.score * 100) }) });
                 if (item.svmFit !== null && item.svmFit !== undefined) {
-                    row.createDiv({ cls: "alp-small", text: `BM25+SVM：${Math.round(item.svmFit * 100)}%` });
+                    row.createDiv({ cls: "alp-small", text: t('tags.svm', { score: Math.round(item.svmFit * 100) }) });
                 }
                 if (item.structureFit !== null && item.structureFit !== undefined) {
-                    row.createDiv({ cls: "alp-small", text: `文書構成の類似度：${Math.round(item.structureFit * 100)}%` });
+                    row.createDiv({ cls: "alp-small", text: t('tags.structure', { score: Math.round(item.structureFit * 100) }) });
                 }
-                if (item.whyCount) row.createDiv({ cls: "alp-small", text: `類似ノート ${item.whyCount} 件が根拠` });
-                if (item.linkWhyCount) row.createDiv({ cls: "alp-small", text: `リンク近傍 ${item.linkWhyCount} 件が根拠` });
+                if (item.whyCount) row.createDiv({ cls: "alp-small", text: t('tags.neighbors', { count: item.whyCount }) });
+                if (item.linkWhyCount) row.createDiv({ cls: "alp-small", text: t('tags.links', { count: item.linkWhyCount }) });
                 checks.push([item.tag, checkbox]);
             }
         };
-        addRows(this.items.filter((item) => !item.isNew), "既存タグ", false);
-        addRows(this.items.filter((item) => item.isNew), "新規タグの候補（文書内の特徴語）", true);
+        addRows(this.items.filter((item) => !item.isNew), t("tags.existing"), false);
+        addRows(this.items.filter((item) => item.isNew), t("tags.new"), true);
 
-        contentEl.createEl("h4", { text: "自分で追加（空白区切り）" });
-        const free = contentEl.createEl("input", { attr: { type: "text", placeholder: "例：研究資料 メモ" } });
+        contentEl.createEl("h4", { text: t("tags.manual") });
+        const free = contentEl.createEl("input", { attr: { type: "text", placeholder: t("tags.example") } });
         free.style.width = "100%";
-        const button = contentEl.createEl("button", { text: "チェックしたタグを追加", cls: "mod-cta" });
+        const button = contentEl.createEl("button", { text: t("tags.add"), cls: "mod-cta" });
         button.style.marginTop = "10px";
         button.addEventListener("click", () => {
             const picked = checks.filter(([, checkbox]) => checkbox.checked).map(([tag]) => tag);
