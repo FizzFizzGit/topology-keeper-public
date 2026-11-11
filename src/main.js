@@ -1,3 +1,6 @@
+const { createWindowViews } = require('./window-host');
+const { SidebarWindows } = require('./sidebar-windows');
+const { SettingsPersistence } = require('./settings-persistence');
 const {
   Plugin,
   Notice,
@@ -8,16 +11,18 @@ const {
 const { computeTagSuggestions, TagSuggestModal } = require("./tag-suggest");
 const { TagSuggestionCache } = require('./tag-suggest-cache');
 const { t } = require('./i18n');
+const { pageUrl, captureWebPage } = require('./web-page-capture');
+const { WebThumbnailModal } = require('./web-thumbnail-modal');
+const { WebThumbnailWorkflow } = require('./web-thumbnail-workflow');
+const { styleWebThumbnails } = require('./web-thumbnail-data');
+const { hideInfoPopover, disposeInfoPopover } = require('./info-popover');
+const { applyAppearance } = require('./portable-window');
 const TopologyKeeperSettingTab = require("./settings-tab");
-const { renderClusterGraph } = require("./graph-view");
-const MainWindowView = require("./main-window");
 const ImportWorkflow = require("./import-workflow");
 const BaseWorkflow = require("./base-workflow");
 const { copyTextToClipboard } = require("./clipboard");
-const { inFolder, isManaged, isImage, isMainNote } = require("./file-utils");
-const { UI_TEXT, CSS_CLASS, ICON, EVENT } = require("./ui-constants");
-const openClusterInStandardGraph = require("./standard-graph");
-const { renderExternalFiles } = require("./external-files-view");
+const { inFolder, isImage, createFilePredicates } = require("./file-utils");
+const { CSS_CLASS } = require("./ui-constants");
 const { collectExternalEntries } = require("./external-file-data");
 const { filenameFromSource } = require("./source-url");
 const BaseManager = require("./base-manager");
@@ -25,27 +30,22 @@ const ExternalFileActions = require("./external-file-actions");
 const ExternalImageEmbed = require("./external-image-embed");
 const { computeOrphans: detectOrphans } = require("./maintenance-check");
 const MaintenanceWorkflow = require("./maintenance-workflow");
-const DetailWindowView = require("./detail-window");
-const {
-  trashOne: trashOneAction,
-  trashOrphans: trashOrphansAction,
-  trashOrphanBase: trashOrphanBaseAction,
-  trashOrphanBases: trashOrphanBasesAction,
-} = require("./maintenance-actions");
 const {
   CONFIG,
-  FOLDERS,
-  isManagedPath,
   loadSettings,
 } = require("./plugin-settings");
 
-// 設定値（CONFIG）と管理フォルダ構成（FOLDERS）は plugin-settings.js に集約している。
-const ABORTED = Symbol("aborted");
+// 設定の正本はこのインスタンスのstate。既定値・正規化はplugin-settings.jsに集約する。
 
 // =================================================================
 //  プラグイン本体
 // =================================================================
 module.exports = class AssetLinksPanel extends Plugin {
+  // 全ての保存を同じ待機列へ通し、返すPromiseの成否は維持する。
+  saveData(data) {
+    return this.persistence ? this.persistence.save(data) : super.saveData(data);
+  }
+
   async onload() {
     this.tagSuggestionCache = new TagSuggestionCache();
     const invalidateTagCorpus = () => this.tagSuggestionCache.invalidate();
@@ -56,30 +56,46 @@ module.exports = class AssetLinksPanel extends Plugin {
     // 保存データ（Obsidian が Vault 内 `.obsidian/plugins/<プラグインID>/data.json` に JSON で保存したもの）。
     // 初回起動では null なので {} にする。項目の一覧は plugin-settings.js の loadSettings を参照。
     const s = (await this.loadData()) ?? {};
+    this.persistence = new SettingsPersistence(data => super.saveData(data), error => {
+      console.error('Topology Keeper settings save failed:', error);
+      new Notice(t('notice.settingsSaveFailed'));
+    });
     this.uiStyleEl = document.createElement("style");
     this.uiStyleEl.textContent = `
       @keyframes tk-cycle-spin { to { transform: rotate(360deg); } }
       .alp-refresh-btn.is-loading .svg-icon { animation: tk-cycle-spin 1s linear infinite; transform-origin: center; }
     `;
     document.head.appendChild(this.uiStyleEl);
-    // 保存データの読み込みと旧バージョン互換、FOLDERS への反映は plugin-settings.js に集約。
-    // FOLDERS の反映が済んでから BaseManager に渡す（参照共有なので順序は本質ではないが、
-    // 「設定を読み込んでから各機能を組み立てる」流れを保つ）。
+    // 設定を読み込んでから、各機能へ同じstate.foldersの参照を渡す。
     // 以後、このファイル内の `this.saveData(this.state)` は、state 全体を上記の data.json にそのまま保存する
     // （保存される項目の一覧は plugin-settings.js の loadSettings を参照）。ドラッグ後の位置・欄の開閉・
     // 表示の切り替えなどは操作のたびに保存する。画面端への補正で変わった位置だけは、保存せず、
     // 次に保存されるときに一緒に書かれる。
     this.state = loadSettings(s);
-    this.baseManager = new BaseManager(this, { CONFIG, FOLDERS });
+    this.files = createFilePredicates(() => this.state.folders);
+    this.baseManager = new BaseManager(this, { CONFIG, FOLDERS: this.state.folders });
     this.baseWorkflow = new BaseWorkflow(this);
     this.externalFileActions = new ExternalFileActions(this.app, {
       getSettings: () => this.state,
       CONFIG,
-      FOLDERS,
+      FOLDERS: this.state.folders,
       TFile,
       isImage,
     });
     this.importWorkflow = new ImportWorkflow(this, { isImage });
+    this.webThumbnails = new WebThumbnailWorkflow(this, {
+      capture: captureWebPage,
+      createModal: (url, cancel) => new WebThumbnailModal(this.app, url, cancel),
+      getBrowserWindow: () => {
+        try {
+          const electron = require('electron');
+          const BrowserWindow = (electron.remote ?? require('@electron/remote')).BrowserWindow;
+          if (typeof BrowserWindow !== 'function') throw new Error();
+          return BrowserWindow;
+        } catch { throw new Error('capture-unavailable'); }
+      },
+      notice: message => new Notice(message), t,
+    });
     this.addSettingTab(new TopologyKeeperSettingTab(this.app, this, { CSS_CLASS }));
     this.currentFile = null; // 外部ファイル欄が対象にしているノート（TFile）。対象外のときは null
     // Base の表示名の索引 Map<Base の Vault相対パス, 表示名>。loadBaseLabels が作る（保存しない）。
@@ -93,108 +109,15 @@ module.exports = class AssetLinksPanel extends Plugin {
       embedClass: CSS_CLASS.imageEmbed,
     });
     // 表示用の分析結果とグラフ状態。実行制御・再チェック表示はMaintenanceWorkflowが管理する。
-    this.maint = { token: 0, result: null };
+    this.maint = { token: 0, result: { orphans: [], strayThumbs: [], orphanBases: [], maintenanceReady: false } };
     this.maintenance = new MaintenanceWorkflow(this, {
-      isManaged,
-      isManagedPath,
+      isManaged: this.files.isManaged,
+      isManagedPath: this.files.isManagedPath,
       getAllTags,
       maxFindings: CONFIG.maxFindings,
     });
-    this.mainView = new MainWindowView({
-      state: this.state,
-      CSS_CLASS,
-      EVENT,
-      ICON,
-      UI_TEXT,
-      getPointerHeldAt: () => this.pointerHeldAt,
-      getResult: () => this.maint.result,
-      computeExternal: () => this.computeExternal(),
-      saveState: () => this.saveData(this.state),
-      isMaintSpinning: () => this.maintenance.spinning,
-      disposeGraphListeners: () => this.disposeGraphListeners(),
-      removeInfoPopovers: (owner) => this.removeInfoPopovers(owner),
-      hideInfoPopovers: () =>
-        document
-          .querySelectorAll(".alp-info-popover")
-          .forEach((tip) => tip.setAttr("hidden", "hidden")),
-      refresh: () => this.refreshWin(),
-      runMaint: (...args) => this.maintenance.run(...args),
-      scheduleMaint: () => this.scheduleMaint(),
-      getActiveFile: () => this.app.workspace.getActiveFile(),
-      isMainNote: (file) => file instanceof TFile && isMainNote(file),
-      importFiles: (file) => this.importWorkflow.importFiles(file),
-      suggestTags: (file) => this.suggestTags(file),
-      createBaseStandalone: () => this.baseWorkflow.createStandalone(),
-      renderExternal: (manager, ext) =>
-        renderExternalFiles(this, manager, ext, {
-          CSS_CLASS,
-          EVENT,
-          section: this.mainView.section.bind(this.mainView),
-          iconButton: this.mainView.iconButton.bind(this.mainView),
-        }),
-      openDetail: (kind) => (kind === "orphan" ? this.orphanView : this.detailView).open(),
-      closeDetail: (kind) => (kind === "orphan" ? this.orphanView : this.detailView).close(),
-      isDetailVisible: (kind) => kind === "orphan" ? this.orphanView.visible : kind === "planar" ? this.detailView.visible : this.detailView.visible || this.orphanView.visible,
-      renderDetail: () => { this.detailView.render(); this.orphanView.render(); },
-      getDetailWindow: () => this.detailView.el,
-      setDetailPosition: (position) => {
-        this.state.detailPos = position;
-      },
-      openLink: (id) => this.app.workspace.openLinkText(id, "", "tab"),
-    });
-    this.detailView = new DetailWindowView({
-      setWindowVisible: (visible) => { this.state.areaWindowVisible = visible; },
-      getDetailPosition: () => this.state.detailPos,
-      saveState: () => this.saveData(this.state),
-      getMainWindow: () => this.mainView.el,
-      updateDetailButton: () => this.mainView.updateDetailButton(),
-      getPointerHeldAt: () => this.pointerHeldAt,
-      getResult: () => this.maint.result,
-      getSelectedCluster: () => this.maint.selectedCluster,
-      getAreaColors: () => ({
-        primitive: this.state.primitiveAreaColor ?? CONFIG.primitiveAreaColor,
-        undetermined: this.state.graphUndeterminedColor ?? CONFIG.graphUndeterminedColor,
-        planar: this.state.graphPlanarColor ?? CONFIG.graphPlanarColor,
-        hotspot: this.state.clusterHighlightColor ?? CONFIG.clusterHighlightColor,
-        nonplanar: this.state.graphNonPlanarColor ?? CONFIG.graphNonPlanarColor,
-      }),
-      setSelectedCluster: (selection) => {
-        this.maint.selectedCluster = selection;
-      },
-      setDetailPosition: (position) => {
-        this.state.detailPos = position;
-      },
-      getBaseLabel: (file) => this.baseLabels.get(file.path) ?? file.basename,
-      refresh: () => this.refreshWin(),
-      disposeGraphListeners: () => this.disposeGraphListeners(),
-      removeInfoPopovers: (owner) => this.removeInfoPopovers(owner),
-      iconButton: this.mainView.iconButton.bind(this.mainView),
-      runMaint: (...args) => this.maintenance.run(...args),
-      enableDrag: this.mainView.enableDrag.bind(this.mainView),
-      fitWindowToContent: this.mainView.fitWindowToContent.bind(this.mainView),
-      section: this.mainView.section.bind(this.mainView),
-      metaLabel: (file) => this.metaLabel(file),
-      openFile: (file) => this.app.workspace.getLeaf("tab").openFile(file),
-      trashOrphans: () => trashOrphansAction(this),
-      trashOne: (file) => trashOneAction(this, file),
-      trashOrphanBases: () => trashOrphanBasesAction(this),
-      trashOrphanBase: (file) => trashOrphanBaseAction(this, file),
-      nodeChip: this.mainView.nodeChip.bind(this.mainView),
-      renderClusterGraph: (...args) => renderClusterGraph(this, ...args),
-      highlightCluster: () => openClusterInStandardGraph(this),
-      CSS_CLASS,
-      UI_TEXT,
-      EVENT,
-      ICON,
-      maxFindings: CONFIG.maxFindings,
-    });
-
-    this.orphanView = new DetailWindowView({
-      ...this.detailView.api,
-      setWindowVisible: (visible) => { this.state.orphanWindowVisible = visible; },
-      getDetailPosition: () => this.state.orphanPos,
-      setDetailPosition: (position) => { this.state.orphanPos = position; },
-    }, "orphan");
+    createWindowViews(this);
+    this.sidebars = new SidebarWindows(this);
 
     this.refreshWin = debounce(
       () => {
@@ -210,7 +133,7 @@ module.exports = class AssetLinksPanel extends Plugin {
       true,
     );
     this.scheduleMaint = debounce(
-      () => this.maintenance.run(),
+      () => { if (this.layoutReady) void this.maintenance.refreshVisible(); },
       CONFIG.maintenanceDelay,
       true,
     );
@@ -218,10 +141,25 @@ module.exports = class AssetLinksPanel extends Plugin {
     this.registerMarkdownPostProcessor((el, ctx) =>
       this.externalImages.render(el, ctx),
     );
+    this.registerMarkdownPostProcessor(element => styleWebThumbnails(element, this.state.webThumbnailFiles));
     this.registerViewEvents();
     this.registerPointerEvents();
     this.registerMaintenanceEvents();
     this.registerCommands();
+  }
+
+  // 共通の見た目だけを変更し、結果・スクロール位置・展開状態は保持する。
+  // CSS適用後の寸法で位置補正する。再分析・窓の再生成・自動保存は行わない。
+  applyWindowAppearance() {
+    for (const view of [this.mainView, this.detailView, this.orphanView]) {
+      if (!view?.el) continue;
+      applyAppearance(view.el, this.state.windowAppearance);
+      this.mainView.fitWindowToContent(view.el);
+      view.constrainToViewport();
+    }
+    // ポップオーバーはbody直下なので、窓からのCSS変数継承に頼らず反映する。
+    document.querySelectorAll('.alp-info-popover').forEach(element =>
+      applyAppearance(element, { fontScale: this.state.windowAppearance.fontScale }));
   }
 
   registerViewEvents() {
@@ -239,20 +177,27 @@ module.exports = class AssetLinksPanel extends Plugin {
       if (event.target.closest?.(".alp-info-popover, .alp-info-button")) return;
       document
         .querySelectorAll(".alp-info-popover:not([hidden])")
-        .forEach((tip) => tip.setAttr("hidden", "hidden"));
+        .forEach(hideInfoPopover);
     });
 
     // 小窓を押している間は再描画を保留する。
     this.pointerHeldAt = 0;
     const hold = (event) => {
-      if (event.target.closest?.(".alp-win, .alp-detail-win"))
+      if (event.target.closest?.(".alp-win, .alp-detail-win")) {
+        clearTimeout(this.pointerReleaseTimer);
         this.pointerHeldAt = Date.now();
+      }
     };
     const release = () => {
       if (!this.pointerHeldAt) return;
-      this.pointerHeldAt = 0;
-      // 描画差分の比較で保留中のデータ変更を検出する。
-      this.refreshWin();
+      clearTimeout(this.pointerReleaseTimer);
+      // pointerup の直後にはまだ click が残っている。押したボタンが
+      // その前に描き直されると、ブラウザがクリックを届けられなくなる。
+      this.pointerReleaseTimer = setTimeout(() => {
+        this.pointerReleaseTimer = null;
+        this.pointerHeldAt = 0;
+        this.refreshWin();
+      }, 0);
     };
     this.registerDomEvent(document, "pointerdown", hold, true);
     this.registerDomEvent(document, "pointerup", release, true);
@@ -294,16 +239,33 @@ module.exports = class AssetLinksPanel extends Plugin {
     );
 
     this.app.workspace.onLayoutReady(() => {
+      this.layoutReady = true;
+      void this.maintenance.restoreDistanceAnalysis();
       this.updateCurrent();
       this.mainView.build();
       if (this.state.areaWindowVisible) this.detailView.open();
       if (this.state.orphanWindowVisible) this.orphanView.open();
+      for (const [kind, visible] of [['main', this.state.visible], ['planar', this.state.areaWindowVisible],
+        ['orphan', this.state.orphanWindowVisible], ['graph', false]]) {
+        if (!visible) this.app.workspace.detachLeavesOfType(this.sidebars.type(kind));
+      }
       this.refreshBaseLabels();
       this.scheduleMaint();
     });
   }
 
   registerCommands() {
+    this.addCommand({
+      id: 'insert-web-thumbnail',
+      name: t('command.insertWebThumbnail'),
+      editorCheckCallback: (checking, editor, view) => {
+        if (!this.files.isMainNote(view.file)) return false;
+        try { pageUrl(editor.getSelection() || editor.getLine(editor.getCursor().line)); }
+        catch { return false; }
+        if (!checking) void this.webThumbnails.run(editor, view);
+        return true;
+      },
+    });
     this.addCommand({
       id: "recover-import",
       name: t("command.recoverImport"),
@@ -319,7 +281,7 @@ module.exports = class AssetLinksPanel extends Plugin {
       name: t("command.addExternalFiles"),
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
-        if (!file || file.extension !== "md" || isManaged(file)) return false;
+        if (!file || file.extension !== "md" || this.files.isManaged(file)) return false;
         if (!checking) this.importWorkflow.importFiles(file);
         return true;
       },
@@ -336,14 +298,14 @@ module.exports = class AssetLinksPanel extends Plugin {
     this.addCommand({
       id: "recheck-maintenance",
       name: t("command.recheck"),
-      callback: () => this.maintenance.run(true),
+      callback: () => this.maintenance.recheckAll(),
     });
     this.addCommand({
       id: "suggest-tags",
       name: t("command.suggestTags"),
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
-        if (!file || file.extension !== "md" || isManaged(file)) return false;
+        if (!file || file.extension !== "md" || this.files.isManaged(file)) return false;
         if (!checking) this.suggestTags(file);
         return true;
       },
@@ -357,11 +319,26 @@ module.exports = class AssetLinksPanel extends Plugin {
     await this.saveData(this.state);
   }
 
+  applyWindowPlacement(kind) {
+    if (!this.layoutReady) return;
+    if (!kind || kind === 'main') this.mainView.applyVisibility();
+    if (!kind || kind === 'planar') this.detailView.syncPlacement();
+    if (!kind || kind === 'orphan') this.orphanView.syncPlacement();
+    if ((!kind || kind === 'graph') && this.maint.selectedCluster && this.detailView.visible) {
+      this.disposeGraphListeners();
+      this.detailView.render(true);
+    }
+  }
+
   onunload() {
+    this.layoutReady = false;
+    clearTimeout(this.pointerReleaseTimer);
+    this.webThumbnails?.dispose();
     this.tagSuggestionCache?.dispose();
     this.maintenance.cancel(); // 実行中の計算を中断
     this.uiStyleEl?.remove();
     this.disposeGraphListeners();
+    this.sidebars?.dispose();
     this.removeInfoPopovers();
     this.mainView.dispose();
     this.detailView.dispose();
@@ -375,7 +352,7 @@ module.exports = class AssetLinksPanel extends Plugin {
   // それ以外（管理フォルダ内のノート、画像など、ファイルを持たないビュー）では null に戻す。
   updateCurrent() {
     const f = this.app.workspace.getActiveFile();
-    this.currentFile = f && f.extension === "md" && !isManaged(f) ? f : null;
+    this.currentFile = f && f.extension === "md" && !this.files.isManaged(f) ? f : null;
   }
 
   // =============================================================
@@ -397,7 +374,7 @@ module.exports = class AssetLinksPanel extends Plugin {
     )
       return null;
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    const main = isMainNote(file);
+    const main = this.files.isMainNote(file);
     return { file, main, entries: main ? this.collectEntries(file, fm) : [] };
   }
 
@@ -408,7 +385,7 @@ module.exports = class AssetLinksPanel extends Plugin {
       file,
       frontmatter: fm,
       baseLabels: this.baseLabels,
-      metaFolder: FOLDERS.meta,
+      metaFolder: this.state.folders.meta,
       linksProperty: CONFIG.properties.links,
     });
   }
@@ -418,16 +395,18 @@ module.exports = class AssetLinksPanel extends Plugin {
   computeOrphans() {
     return detectOrphans(this.app, {
       CONFIG,
-      FOLDERS,
+      FOLDERS: this.state.folders,
       getAllTags,
       inFolder,
       getThumbnailForMeta: (file) =>
         this.externalFileActions.getThumbnailForMeta(file),
       listBases: () => this.baseManager.listBases(),
+      webThumbnailFiles: this.state.webThumbnailFiles,
     });
   }
 
   disposeGraphListeners() {
+    this.graphRevision = (this.graphRevision ?? 0) + 1;
     try {
       this.maint.graphCleanup?.();
     } catch (_) {}
@@ -438,7 +417,7 @@ module.exports = class AssetLinksPanel extends Plugin {
     const selector = owner
       ? `.alp-info-popover[data-owner="${owner}"]`
       : ".alp-info-popover";
-    document.querySelectorAll(selector).forEach((tip) => tip.remove());
+    document.querySelectorAll(selector).forEach(tip => { disposeInfoPopover(tip); tip.remove(); });
   }
 
   // 外部ファイル一覧と詳細窓が使う共通UI部品は MainWindowView に委譲する。
@@ -471,7 +450,7 @@ module.exports = class AssetLinksPanel extends Plugin {
       const items = await computeTagSuggestions(
         this.app,
         file,
-        isManaged,
+        this.files.isManaged,
         this.state.tagStopWords,
         this.tagSuggestionCache,
       );

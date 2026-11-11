@@ -1,8 +1,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { findNonPlanar } = require('../src/graph-analysis');
+const { findNonPlanar, diagnoseAreaPlanarity } = require('../src/graph-analysis');
 const { undeterminedRemainder } = require('../src/graph-analysis');
 const { getRemainderKind } = require('../src/graph-analysis');
+const { checkSmallPlanarity } = require('../src/small-planarity');
 const tick = async () => {};
 function edge(g, a, b) {
   if (!g.has(a)) g.set(a, new Set());
@@ -42,9 +43,16 @@ test('K3,3 is not fragmented into small communities', async () => {
   assert.equal(r.definite.length, 1);
   assert.equal(r.k33.length, 1);
 });
+test('fixed area diagnosis detects a nonplanar core while measuring density on all displayed vertices', async () => {
+  const graph = new Map();
+  clique(graph, 'a', 5);
+  for (let i = 0; i < 10; i++) edge(graph, 'a0', 'leaf' + i);
+  assert.deepEqual(await diagnoseAreaPlanarity(graph, tick),
+    { classification: 'nonplanar', linkDensity: 40 / (15 * 14) });
+});
 test('empty graphs produce no areas', async () => {
   const r = await findNonPlanar(new Map(), tick);
-  assert.equal(r.safe.length + r.definite.length + r.hotspots.length, 0);
+  assert.equal(r.safe.length + r.definite.length + r.remainder.length, 0);
 });
 
 test('one tag shared by two otherwise separate cliques preserves both blocks today', async () => {
@@ -62,34 +70,54 @@ test('one tag shared by two otherwise separate cliques preserves both blocks tod
     assert.ok(area.nodes.every(id => id === '#shared' || id.startsWith(prefix)));
   }
 });
-test('cube retains the undetermined classification without false nonplanar evidence', async () => {
+test('exact diagnosis finds a planar embedding for a cube left undetermined by the structural scan', async () => {
   const g = new Map();
   for (let i = 0; i < 8; i++)
     for (const bit of [1, 2, 4]) edge(g, String(i), String(i ^ bit));
   const r = await findNonPlanar(g, tick);
   assert.equal(r.definite.length, 0);
   assert.equal(r.suspect.length, 1);
-  assert.ok(r.hotspots.length > 0);
+  assert.equal((await diagnoseAreaPlanarity(g, tick)).classification, 'planar');
+  assert.ok(r.remainder.length > 0);
   const whole = new Set(r.suspect.flatMap(area => area.originalNodes));
-  const hot = new Set(r.hotspots.flatMap(area => area.originalNodes));
   const other = new Set(r.remainder.flatMap(area => area.originalNodes));
-  assert.deepEqual(new Set([...hot, ...other]), whole);
-  assert.ok([...other].every(node => !hot.has(node)));
+  assert.deepEqual(other, whole);
 });
 
-test('undetermined remainder covers only non-hotspot notes, including boundary paths and small components', async () => {
+test('exact diagnosis resolves a nonplanar graph without a direct K5 or K3,3 pattern', async () => {
+  const graph = new Map();
+  for (let i = 0; i < 5; i++) {
+    edge(graph, `outer${i}`, `outer${(i + 1) % 5}`);
+    edge(graph, `inner${i}`, `inner${(i + 2) % 5}`);
+    edge(graph, `outer${i}`, `inner${i}`);
+  }
+  assert.equal((await diagnoseAreaPlanarity(graph, tick)).classification, 'nonplanar');
+});
+
+test('exact diagnosis distinguishes a prism and a Möbius ladder past the rotation budget', async () => {
+  const prism = new Map(), mobius = new Map();
+  for (let i = 0; i < 12; i++) {
+    edge(prism, `a${i}`, `a${(i + 1) % 12}`);
+    edge(prism, `b${i}`, `b${(i + 1) % 12}`);
+    edge(prism, `a${i}`, `b${i}`);
+    edge(mobius, String(i), String(i + 12));
+  }
+  for (let i = 0; i < 24; i++) edge(mobius, String(i), String((i + 1) % 24));
+  for (const [graph, expected] of [[prism, 'planar'], [mobius, 'nonplanar']]) {
+    assert.equal(await checkSmallPlanarity(graph, tick), 'undetermined');
+    assert.equal((await diagnoseAreaPlanarity(graph, tick)).classification, expected);
+  }
+});
+
+test('undetermined areas retain the original vertices and links', async () => {
   const graph = new Map();
   for (const [a, b] of [['h0', 'h1'], ['h1', 'h2'], ['h2', 'h0'],
     ['h0', 'path'], ['path', 'r0'], ['r0', 'r1'], ['h1', 'small']]) edge(graph, a, b);
   const whole = { nodes: ['h0', 'h1', 'h2', 'r0', 'r1', 'small'], originalNodes: [...graph.keys()] };
-  const hotspots = [{ nodes: ['h0', 'h1', 'h2'], originalNodes: ['h0', 'h1', 'h2'] }];
-  const remainder = await undeterminedRemainder(graph, whole, hotspots, tick);
-  assert.equal(remainder.length, 2);
-  assert.deepEqual(new Set(remainder.flatMap(area => area.originalNodes)), new Set(['path', 'r0', 'r1', 'small']));
-  assert.ok(remainder.some(area => area.nodes.length === 1 && area.nodes[0] === 'small'));
-  assert.deepEqual(await undeterminedRemainder(graph, whole, [{ originalNodes: whole.originalNodes }], tick), []);
-  const noHot = await undeterminedRemainder(graph, whole, [], tick);
-  assert.deepEqual(new Set(noHot.flatMap(area => area.nodes)), new Set(whole.originalNodes));
+  const areas = await undeterminedRemainder(graph, whole, tick);
+  assert.equal(areas.length, 1);
+  assert.deepEqual(new Set(areas[0].nodes), new Set(whole.originalNodes));
+  assert.ok(areas[0].links.some(([a, b]) => a === 'h0' && b === 'path'));
 });
 
 test('undetermined display distinguishes low density from small and dense boundary parts', () => {

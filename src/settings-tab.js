@@ -1,27 +1,18 @@
 const { PluginSettingTab, Setting, Notice } = require("obsidian");
 const { t } = require('./i18n');
+const { renderWindowSettings } = require('./window-settings');
 const {
   DEFAULT_FOLDERS,
   normalizeTagStopWords,
   normalizeAllowedOrphanFolder,
-  FOLDERS,
   setFolder,
   resetUserSettings,
   getHighlightColor,
 } = require("./plugin-settings");
 
-// 設定画面は「入力の検証」と「UIの組み立て」だけを担当する。
-// 既定値・フォルダ構成の保持・state との同期規則は plugin-settings.js 側にあり、
-// ここでは値を直接書き換えず、そこの関数を経由する（同期漏れを防ぐため）。
-// 保存（saveData）のタイミングは、ここ（利用者の操作の直後）で決める。
-//
-// 【データの流れ】
-//   読み込み: plugin.state（plugin-settings.js の loadSettings が作った、実行時の設定）と、
-//             FOLDERS（実行時に有効な管理フォルダ名）を、画面の初期値として表示する。
-//   書き込み: 利用者の入力を検証して plugin.state に反映し、plugin.saveData(plugin.state) で
-//             `.obsidian/plugins/<プラグインID>/data.json` に保存する（Obsidian の Plugin.saveData）。
-//             フォルダ名の変更は FOLDERS にも即座に反映され、以後の取り込み・孤立判定・Base作成が
-//             新しいフォルダ名を使う。既存ファイルは移動されない。
+// 設定画面は入力検証・UI・保存タイミングを担当する。
+// 管理フォルダはplugin.state.foldersを読み、setFolder/resetUserSettingsで更新する。
+// 実行用・保存用の二重管理はしない。フォルダ名変更は既存ファイルを移動しない。
 
 class TopologyKeeperSettingTab extends PluginSettingTab {
   // options には、設定ファイルに属さない実装識別子（CSS_CLASS）だけを受け取る。
@@ -35,6 +26,7 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "Topology Keeper" });
+    renderWindowSettings(containerEl, this.plugin, { Setting, t });
     new Setting(containerEl)
       .setName(t("settings.positions"))
       .setDesc(t("settings.positionsDesc"))
@@ -42,9 +34,6 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
         await this.plugin.resetWindowPositions();
         new Notice(t("settings.positionsReset"));
       }));
-    containerEl.createEl("p", {
-      text: t("settings.storageDesc"),
-    });
 
     containerEl.createEl("h3", { text: t("settings.externalFiles") });
     if (this.plugin.state.pendingImport) {
@@ -68,6 +57,9 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
         await this.plugin.saveData(this.plugin.state);
       }));
     containerEl.createEl("h3", { text: t("settings.managedFolders") });
+    containerEl.createEl("p", {
+      text: t("settings.storageDesc"),
+    });
     const entries = [
       [
         "meta",
@@ -84,7 +76,7 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
         .addText((text) =>
           text
             .setPlaceholder(DEFAULT_FOLDERS[key])
-            .setValue(FOLDERS[key])
+            .setValue(this.plugin.state.folders[key])
             .onChange(async (value) => {
               // value: テキスト欄の現在の入力文字列。Obsidian はキー入力のたびにこの関数を呼ぶので、
               //        入力の途中の値でも、下の検証を通れば、その時点で保存・反映される。
@@ -101,7 +93,7 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
                 new Notice(t("settings.invalidFolder"));
                 return;
               }
-              const other = Object.entries(FOLDERS).find(
+              const other = Object.entries(this.plugin.state.folders).find(
                 ([otherKey, otherPath]) =>
                   otherKey !== key && otherPath === folder,
               );
@@ -111,7 +103,7 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
                 );
                 return;
               }
-              // FOLDERS（実行時）と state.folders（保存用）は必ず同時に更新する。
+              // 保存も実行も同じstate.foldersを参照する。
               setFolder(this.plugin.state, key, folder);
               await this.plugin.saveData(this.plugin.state);
             }),
@@ -132,36 +124,38 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h3", { text: t("settings.graphDisplay") });
     const graphColors = [
-      ['graphUndeterminedColor', t("settings.undeterminedColor"), t("settings.undeterminedColorDesc")],
-      ['primitiveAreaColor', t("settings.primitiveColor"), t("settings.primitiveColorDesc")],
-      ["graphPlanarColor", t("settings.planarColor"), t("settings.planarColorDesc")],
       [
         "clusterHighlightColor",
-        t("settings.hotspotColor"),
-        t("settings.hotspotColorDesc"),
+        t("settings.densePlanarColor"),
+        t("settings.densePlanarColorDesc"),
       ],
+      ["graphPlanarColor", t("settings.planarColor"), t("settings.planarColorDesc")],
       [
         "graphNonPlanarColor",
         t("settings.nonplanarColor"),
         t("settings.nonplanarColorDesc"),
       ],
+      ['graphUndeterminedColor', t("settings.undeterminedColor"), t("settings.undeterminedColorDesc")],
+      [null, t('settings.undeterminedCombined'), t('settings.undeterminedCombinedDesc')],
+      ['primitiveAreaColor', t("settings.primitiveColor"), t("settings.primitiveColorDesc")],
     ];
     for (const [key, name, description] of graphColors) {
-      new Setting(containerEl)
+      const setting = new Setting(containerEl)
         .setName(name)
-        .setDesc(description)
-        .addColorPicker((picker) =>
-          picker
-            .setValue(
-              key === "clusterHighlightColor"
-                ? getHighlightColor(this.plugin.state)
-                : this.plugin.state[key],
-            )
-            .onChange(async (value) => {
-              this.plugin.state[key] = value;
-              await this.plugin.saveData(this.plugin.state);
-            }),
-        );
+        .setDesc(description);
+      if (key) setting.addColorPicker((picker) =>
+        picker
+          .setValue(
+            key === "clusterHighlightColor"
+              ? getHighlightColor(this.plugin.state)
+              : this.plugin.state[key],
+          )
+          .onChange(async (value) => {
+            this.plugin.state[key] = value;
+            await this.plugin.saveData(this.plugin.state);
+            this.plugin.refreshWin();
+          }),
+      );
     }
 
     containerEl.createEl("h3", { text: t("settings.tagSuggestions") });
@@ -192,6 +186,8 @@ class TopologyKeeperSettingTab extends PluginSettingTab {
           .onClick(async () => {
             // リセット対象の定義（何を戻し、何を保持するか）は plugin-settings.js 側にある。
             resetUserSettings(this.plugin.state);
+            this.plugin.applyWindowPlacement?.();
+            this.plugin.applyWindowAppearance();
             await this.plugin.saveData(this.plugin.state);
             this.display();
             new Notice(t("settings.defaultsRestored"));

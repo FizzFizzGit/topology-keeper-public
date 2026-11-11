@@ -1,116 +1,15 @@
+const { bindGraphInteraction } = require('./graph-interaction');
+const { bindGraphWindowPosition } = require('./graph-window-position');
+const { selectGraph } = require('./graph-selection');
+const { layoutGraph } = require('./graph-layout');
 const { t } = require('./i18n');
 const { setIcon } = require('obsidian');
+const { edgeDirections, NODE_STROKE_WIDTH, nodeRadius, arrowTip } = require('./graph-geometry');
 const UI_TEXT = { close: t("window.closeAction") };
-const CSS_CLASS = { isPanning: "is-panning" };
 const EVENT = {
   click: "click",
   keydown: "keydown",
-  pointerdown: "pointerdown",
-  pointermove: "pointermove",
-  pointerup: "pointerup",
-  pointercancel: "pointercancel",
-  wheel: "wheel",
 };
-const nodeLabel = (id) =>
-  id.startsWith("#") ? id : id.split("/").pop().replace(/\.md$/, "");
-
-// 部分グラフ窓のpx座標を復元し、タイトルバー移動後にプラグイン設定へ保存する。
-// 入力は窓DOMとプラグイン。返却する関数は移動・画面サイズ変更のリスナーを解除する。
-function bindGraphWindowPosition(plugin, panel, head) {
-  const size = plugin.state.graphSize;
-  if (size) {
-    panel.style.width = `${Math.min(size.width, window.innerWidth * 0.96)}px`;
-    panel.style.height = `${Math.min(size.height, window.innerHeight * 0.96)}px`;
-  }
-  const constrain = (x, y) => {
-    const rect = panel.getBoundingClientRect();
-    const position = {
-      x: Math.max(0, Math.min(window.innerWidth - rect.width, x)),
-      y: Math.max(0, Math.min(window.innerHeight - rect.height, y)),
-    };
-    panel.style.left = `${position.x}px`;
-    panel.style.top = `${position.y}px`;
-    return position;
-  };
-  const saved = plugin.state.graphPos;
-  if (saved) constrain(saved.x, saved.y);
-  else {
-    const rect = panel.getBoundingClientRect();
-    constrain(rect.left, rect.top);
-  }
-  let lastRect = panel.getBoundingClientRect();
-  let sizeTimer = null;
-  let pendingSize = false;
-  const saveSize = () => {
-    if (sizeTimer !== null) clearTimeout(sizeTimer);
-    sizeTimer = null;
-    if (!pendingSize) return;
-    pendingSize = false;
-    plugin.state.graphSize = { width: lastRect.width, height: lastRect.height };
-    plugin.state.graphPos = { x: lastRect.left, y: lastRect.top };
-    plugin.saveData(plugin.state);
-  };
-  const observeSize = () => {
-    const rect = panel.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-    if (rect.width === lastRect.width && rect.height === lastRect.height) return;
-    const position = constrain(rect.left, rect.top);
-    lastRect = { ...position, left: position.x, top: position.y, width: rect.width, height: rect.height };
-    pendingSize = true;
-    if (sizeTimer !== null) clearTimeout(sizeTimer);
-    sizeTimer = setTimeout(saveSize, 250);
-  };
-  const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(observeSize) : null;
-  observer?.observe(panel);
-  let move = null;
-  let moved = false;
-  const stop = () => {
-    document.removeEventListener("pointermove", move);
-    document.removeEventListener("pointerup", stop);
-    document.removeEventListener("pointercancel", stop);
-    window.removeEventListener("blur", stop);
-    move = null;
-    if (moved) {
-      moved = false;
-      const rect = panel.getBoundingClientRect();
-      plugin.state.graphPos = constrain(rect.left, rect.top);
-      lastRect = { left: plugin.state.graphPos.x, top: plugin.state.graphPos.y, width: rect.width, height: rect.height };
-      plugin.saveData(plugin.state);
-    }
-  };
-  const start = event => {
-    if (event.button !== 0 || event.target.closest("button")) return;
-    stop();
-    const rect = panel.getBoundingClientRect();
-    const startX = event.clientX, startY = event.clientY;
-    move = e => {
-      moved = true;
-      constrain(rect.left + e.clientX - startX, rect.top + e.clientY - startY);
-    };
-    document.addEventListener("pointermove", move);
-    document.addEventListener("pointerup", stop);
-    document.addEventListener("pointercancel", stop);
-    window.addEventListener("blur", stop);
-    event.preventDefault();
-  };
-  const resize = () => {
-    const rect = panel.getBoundingClientRect();
-    constrain(rect.left, rect.top);
-    observeSize();
-  };
-  head.addEventListener("pointerdown", start);
-  window.addEventListener("resize", resize);
-  document.addEventListener('pointerup', saveSize);
-  return () => {
-    observeSize();
-    observer?.disconnect();
-    saveSize();
-    stop();
-    head.removeEventListener("pointerdown", start);
-    window.removeEventListener("resize", resize);
-    document.removeEventListener('pointerup', saveSize);
-  };
-}
 
 // 選択したエリアを、周辺ノードと境界候補辺も含めて SVG グラフとして描く。
 //
@@ -118,13 +17,13 @@ function bindGraphWindowPosition(plugin, panel, head) {
 //   plugin.maint.graphAdj : グラフ全体の隣接表 Map<頂点ID, Set<頂点ID>>（graph-analysis.js の buildAdjacency の
 //                           結果。maintenance-workflow.js が保持する）。まだ計算前（null）なら何も描かない。
 //                           頂点IDはノートの Vault 相対パス、またはタグ（"#" 付き）。
-//   selection             : { nodes, links, boundaryLinks }。detail-window.js の renderFindingActions が、
+//   selection             : { nodes, links, boundaryLinks }。analysis-content.js が、
 //                           平面性未確定のエリア（item）から作る。
 //     nodes : 領域に含まれる頂点IDの配列。adj に無いIDは捨てる。
 //     links : 領域の辺 [[u, v], ...]。これは「縮約後のグラフ」の辺で、元の adj には無い辺
 //             （次数2の頂点を飛び越える辺）を含むことがある。そのような辺は「縮約された辺」として区別して描く。
-//   parent                : 描画先の DOM 要素（詳細窓の「エリア分析」欄）。
-// 【出力】 戻り値は無い。parent の中にグラフのパネルを追加する。次の副作用がある。
+//   parent                : 呼び出し元の分析欄。表示先の文書を特定するために使う。
+// 【出力】 戻り値は無い。独立窓は文書直下、サイドパネルは指定されたタブに表示する。
 //   ・plugin.maint.graphCleanup に、Escape キーのリスナーを外す関数を設定する（再描画のたびに
 //     plugin.disposeGraphListeners() が呼んで解除する）。
 //   ・閉じる操作で plugin.maint.selectedCluster を null に戻して再描画する。
@@ -132,85 +31,17 @@ function bindGraphWindowPosition(plugin, panel, head) {
 //   ノードの配置（力学モデルで計算）や拡大縮小は、この関数の中だけで持ち、保存しない。
 //   描画のたびにゼロから計算し直すため、ドラッグで調整した配置は再描画で失われる。
 //   表示するのは、領域の頂点（中核。次数の高い順に最大90）と、その隣接頂点（周辺。最大35）まで。
-function renderClusterGraph(plugin, parent, selection) {
-  const adj = plugin.maint.graphAdj;
+function renderClusterGraph(plugin, parent, selection, adj = plugin.maint.graphAdj) {
   if (!adj) return;
-  const allSelectedIds = [
-    ...new Set((selection.nodes ?? []).filter((id) => adj.has(id))),
-  ];
-  const selectedIds = allSelectedIds
-    .sort((a, b) => Number(b === selection.tag) - Number(a === selection.tag) || (adj.get(b)?.size ?? 0) - (adj.get(a)?.size ?? 0))
-    .slice(0, 90);
-  const selected = new Set(selectedIds);
+  const { allSelectedIds, selected, ids, edges, boundaryLinks } = selectGraph(adj, selection);
   if (!selected.size) return;
 
-  const maxContext = 35;
-  const context = new Set();
-  const boundaryLinks = selection.boundaryLinks ?? [];
-  const boundaryKeys = new Set(
-    boundaryLinks.map(([u, v]) =>
-      u < v ? `${u}\0${v}` : `${v}\0${u}`,
-    ),
-  );
-  const boundaryContext = new Set();
-  for (const id of selection.exact ? [] : selected) {
-    for (const neighbor of adj.get(id) ?? []) {
-      if (!selected.has(neighbor)) context.add(neighbor);
-    }
-  }
-  for (const [u, v] of boundaryLinks) {
-    if (selected.has(u) && !selected.has(v)) boundaryContext.add(v);
-    if (selected.has(v) && !selected.has(u)) boundaryContext.add(u);
-  }
-  for (const id of boundaryContext) context.add(id);
-  const contextList = [...context]
-    .sort(
-      (a, b) =>
-        Number(boundaryContext.has(b)) - Number(boundaryContext.has(a)) ||
-        (adj.get(b)?.size ?? 0) - (adj.get(a)?.size ?? 0),
-    )
-    .slice(0, maxContext);
-  const ids = [...selectedIds, ...contextList];
-  const idSet = new Set(ids);
-  // edges の各要素 { a, b, contracted, boundary }（a, b は頂点ID）。まず adj の実辺を集め、
-  // selection.links / boundaryLinks の未登録辺は次数2抑制後の辺として足す。
-  // edgeKeys は「u\0v」（u < v）の形の重複防止用のキー。
-  const edges = [];
-  const edgeKeys = new Set();
-  const allowedEdges = selection.exact ? new Set((selection.links ?? []).map(([a, b]) =>
-    JSON.stringify([a, b].sort()))) : null;
-  for (const u of ids) {
-    for (const v of adj.get(u) ?? []) {
-      if (idSet.has(v) && u < v && (!allowedEdges || allowedEdges.has(JSON.stringify([u, v])))) {
-        edges.push({
-          a: u,
-          b: v,
-          contracted: false,
-          boundary: boundaryKeys.has(`${u}\0${v}`),
-        });
-        edgeKeys.add(`${u}\0${v}`);
-      }
-    }
-  }
-  for (const [u, v] of selection.links ?? []) {
-    if (selection.exact) continue; // Model selections contain actual links only.
-    const key = u < v ? `${u}\0${v}` : `${v}\0${u}`;
-    if (idSet.has(u) && idSet.has(v) && !edgeKeys.has(key)) {
-      edges.push({ a: u, b: v, contracted: true });
-      edgeKeys.add(key);
-    }
-  }
-  for (const [u, v] of boundaryLinks) {
-    const key = u < v ? `${u}\0${v}` : `${v}\0${u}`;
-    if (idSet.has(u) && idSet.has(v) && !edgeKeys.has(key)) {
-      edges.push({ a: u, b: v, contracted: true, boundary: true });
-      edgeKeys.add(key);
-    }
-  }
-
-  const panel = parent.createDiv({ cls: "alp-graph-panel" });
-  panel.setAttr("role", "dialog");
-  panel.setAttr("aria-modal", "true");
+  const doc = parent.ownerDocument;
+  // 分析欄の祖先にあるサイドパネルの座標やクリッピングから独立させる。
+  const panel = doc.body.createDiv({ cls: "alp-graph-panel" });
+  const docked = plugin.sidebars && plugin.sidebars.placement('graph') !== 'floating';
+  panel.setAttr("role", docked ? "region" : "dialog");
+  if (!docked) panel.setAttr("aria-modal", "true");
   panel.setAttr("aria-label", selection.title ?? t("graph.title"));
   const head = panel.createDiv({ cls: "alp-graph-head" });
   head.createSpan({
@@ -241,19 +72,21 @@ function renderClusterGraph(plugin, parent, selection) {
   };
   // 再描画でパネルが作り直されても古いリスナーが残らないよう、解除関数を保持する。
   plugin.disposeGraphListeners();
-  const disposePosition = bindGraphWindowPosition(plugin, panel, head);
+  const disposePosition = docked ? null : bindGraphWindowPosition(plugin, panel, head);
   plugin.maint.graphCleanup = () => {
-    disposePosition();
-    document.removeEventListener("keydown", onKeyDown);
+    disposePosition?.();
+    plugin.sidebars?.hide('graph');
+    doc.removeEventListener("keydown", onKeyDown);
+    panel.remove();
   };
   const closeGraph = () => {
     plugin.disposeGraphListeners();
     plugin.maint.selectedCluster = null;
-    if (plugin.detailVisible) plugin.renderDetailWindow();
-    else plugin.mainView.render(true);
+    if (plugin.detailView?.visible) plugin.detailView.render();
+    else plugin.mainView.render();
   };
   close.addEventListener(EVENT.click, closeGraph);
-  document.addEventListener(EVENT.keydown, onKeyDown);
+  doc.addEventListener(EVENT.keydown, onKeyDown);
   const graphHelp = panel.createDiv({ cls: "alp-graph-help" });
   const helpButton = graphHelp.createEl("button", {
     text: t("graph.help"),
@@ -269,7 +102,7 @@ function renderClusterGraph(plugin, parent, selection) {
   });
 
   const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg");
+  const svg = doc.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", "0 0 1600 1000");
   svg.setAttribute("role", "img");
   svg.setAttribute(
@@ -278,159 +111,41 @@ function renderClusterGraph(plugin, parent, selection) {
   );
   svg.classList.add("alp-graph-svg");
   panel.appendChild(svg);
-  const scene = document.createElementNS(ns, "g");
+  const scene = doc.createElementNS(ns, "g");
   svg.appendChild(scene);
 
-  let centerX = 800,
-    centerY = 500;
-  const nodes = ids.map((id, i) => {
-    // Golden-angle seed avoids putting all nodes on a few axes before the force layout starts.
-    const angle = i * 2.399963229728653;
-    const radius = 45 + Math.sqrt(i + 1) * (selected.has(id) ? 70 : 125);
-    const label = nodeLabel(id);
-    return {
-      id,
-      selected: selected.has(id),
-      label,
-      x: centerX + Math.cos(angle) * radius,
-      y: centerY + Math.sin(angle) * radius,
-      vx: 0,
-      vy: 0,
-      labelWidth: Math.max(55, Math.min(420, label.length * 9 + 16)),
-      g: null,
-      labelEl: null,
-      circle: null,
-    };
-  });
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const simEdges = edges
-    .map((edge) => ({ ...edge, a: byId.get(edge.a), b: byId.get(edge.b) }))
-    .filter((edge) => edge.a && edge.b);
-
-  // Force-directed layout: stronger link attraction, pair repulsion, label-box collision avoidance,
-  // and weak gravity. Unlike the previous version, context nodes have no fixed corner targets.
-  const relax = (steps, pinned = null) => {
-    const repulsion = 18000;
-    for (let step = 0; step < steps; step++) {
-      for (let i = 0; i < nodes.length; i++) {
-        const a = nodes[i];
-        for (let j = i + 1; j < nodes.length; j++) {
-          const b = nodes[j];
-          let dx = a.x - b.x,
-            dy = a.y - b.y;
-          let d2 = dx * dx + dy * dy;
-          if (d2 < 1) {
-            dx = (i + 1) * 0.7;
-            dy = (j + 1) * 0.4;
-            d2 = dx * dx + dy * dy;
-          }
-          const d = Math.sqrt(d2);
-          const minD = 68;
-          const push =
-            repulsion / Math.max(2500, d2) +
-            (d < minD ? (minD - d) * 0.12 : 0);
-          const fx = (dx / d) * push,
-            fy = (dy / d) * push;
-          a.vx += fx;
-          a.vy += fy;
-          b.vx -= fx;
-          b.vy -= fy;
-
-          // Approximate text rectangles to push apart labels that would overlap.
-          const ay1 = a.y - 13,
-            ay2 = a.y + 13;
-          const by1 = b.y - 13,
-            by2 = b.y + 13;
-          const ax1 = a.x + 13,
-            ax2 = ax1 + a.labelWidth;
-          const bx1 = b.x + 13,
-            bx2 = bx1 + b.labelWidth;
-          const overlapX = Math.min(ax2, bx2) - Math.max(ax1, bx1);
-          const overlapY = Math.min(ay2, by2) - Math.max(ay1, by1);
-          if (overlapX > 0 && overlapY > 0) {
-            const sign = a.x <= b.x ? -1 : 1;
-            const labelPush = Math.min(3.5, overlapX * 0.025 + 0.5);
-            a.vx += sign * labelPush;
-            b.vx -= sign * labelPush;
-            const ySign = a.y <= b.y ? -1 : 1;
-            a.vy += ySign * overlapY * 0.035;
-            b.vy -= ySign * overlapY * 0.035;
-          }
-        }
-      }
-      for (const edge of simEdges) {
-        const { a, b } = edge;
-        const dx = b.x - a.x,
-          dy = b.y - a.y;
-        const d = Math.max(1, Math.hypot(dx, dy));
-        const target = edge.contracted
-          ? 205
-          : a.selected && b.selected
-            ? 175
-            : 215;
-        const force = (d - target) * 0.018;
-        a.vx += (dx / d) * force;
-        a.vy += (dy / d) * force;
-        b.vx -= (dx / d) * force;
-        b.vy -= (dy / d) * force;
-      }
-      for (const n of nodes) {
-        // Mild central gravity keeps the graph in one navigable area without pinning nodes to corners.
-        n.vx += (centerX - n.x) * 0.0007;
-        n.vy += (centerY - n.y) * 0.0007;
-        n.vx *= 0.72;
-        n.vy *= 0.72;
-        if (n.id !== pinned) {
-          n.x += Math.max(-22, Math.min(22, n.vx));
-          n.y += Math.max(-22, Math.min(22, n.vy));
-        } else {
-          n.vx = 0;
-          n.vy = 0;
-        }
-      }
-    }
-  };
-  relax(480);
-
-  // Fit the coordinate space to the laid-out graph, retaining enough room for complete labels.
-  const bounds = () => {
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-    for (const n of nodes) {
-      minX = Math.min(minX, n.x - 20);
-      minY = Math.min(minY, n.y - 25);
-      maxX = Math.max(maxX, n.x + n.labelWidth + 25);
-      maxY = Math.max(maxY, n.y + 25);
-    }
-    return { minX, minY, maxX, maxY };
-  };
-  const b = bounds();
-  const W = Math.max(1200, b.maxX - b.minX + 160);
-  const H = Math.max(760, b.maxY - b.minY + 160);
+  const { nodes, simEdges, width: W, height: H } = layoutGraph(ids, selected, edges);
   const groupPalette = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#E69F00', '#56B4E9'];
-  const offsetX = W / 2 - (b.minX + b.maxX) / 2;
-  const offsetY = H / 2 - (b.minY + b.maxY) / 2;
-  for (const n of nodes) {
-    n.x += offsetX;
-    n.y += offsetY;
-  }
-  centerX = W / 2;
-  centerY = H / 2;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  // 辺・矢印の後にノードと文字を描き、文字の可読性を優先する。
+  const arrowLayer = doc.createElementNS(ns, 'g');
+  arrowLayer.setAttribute('class', 'alp-graph-arrows');
+  arrowLayer.setAttribute('pointer-events', 'none');
   const edgeEls = [];
   for (const edge of simEdges) {
-    const line = document.createElementNS(ns, "line");
+    const line = doc.createElementNS(ns, "line");
+    const direction = edgeDirections({ ...edge, a: edge.a.id, b: edge.b.id }, plugin.app?.metadataCache?.resolvedLinks);
     line.setAttribute(
       "class",
       `${edge.a.selected && edge.b.selected ? "alp-graph-edge is-selected" : "alp-graph-edge"}${edge.contracted ? " is-contracted" : ""}${edge.boundary ? " is-boundary" : ""}`,
     );
     scene.appendChild(line);
-    edgeEls.push({ edge, el: line });
+    // マーカー参照に依存せず、接続先の円周へ先端が接する矢印を直接描く。
+    // 相互リンクでは、それぞれの円周に向けて描く。
+    const arrows = [];
+    for (const reverse of [false, true]) {
+      if (!(reverse ? direction.start : direction.end)) continue;
+      const arrow = doc.createElementNS(ns, 'polygon');
+      arrow.setAttribute('class', `alp-graph-arrow${edge.a.selected && edge.b.selected ? ' is-selected' : ''}${edge.boundary ? ' is-boundary' : ''}`);
+      arrow.setAttribute('pointer-events', 'none');
+      arrowLayer.appendChild(arrow);
+      arrows.push({ el: arrow, reverse });
+    }
+    edgeEls.push({ edge, el: line, arrows });
   }
+  scene.appendChild(arrowLayer);
   for (const n of nodes) {
-    const g = document.createElementNS(ns, "g");
+    const g = doc.createElementNS(ns, "g");
     g.setAttribute(
       "class",
       `${n.selected ? "alp-graph-node is-selected" : "alp-graph-node"}${n.id.startsWith("#") ? " is-tag" : " is-openable"}`,
@@ -441,175 +156,68 @@ function renderClusterGraph(plugin, parent, selection) {
       g.setAttribute("aria-label", t('graph.openNote', { path: n.id }));
     }
     // 見た目の円より広い透明なヒット領域を用意し、ノードをつかみやすくする。
-    const hitArea = document.createElementNS(ns, "circle");
+    const hitArea = doc.createElementNS(ns, "circle");
     hitArea.setAttribute("r", Math.max(14, n.selected ? 16 : 14));
     hitArea.setAttribute("fill", "transparent");
     hitArea.setAttribute("stroke", "none");
+    // SVGのfill/stroke属性は通常のCSS規則に負ける。
+    // .alp-graph-node circle の装飾を受けず、操作範囲だけを広げる。
+    hitArea.style.fill = 'transparent';
+    hitArea.style.stroke = 'none';
     hitArea.setAttribute("class", "alp-graph-node-hit");
     g.appendChild(hitArea);
-    const circle = document.createElementNS(ns, "circle");
-    circle.setAttribute("r", n.selected ? 9 : 6);
+    const circle = doc.createElementNS(ns, "circle");
+    circle.setAttribute("r", nodeRadius(n));
+    circle.style.strokeWidth = String(NODE_STROKE_WIDTH);
     const groupIndices = (selection.groups ?? []).flatMap((group, index) => group.nodes.includes(n.id) ? [index] : []);
     if (groupIndices.length) circle.style.fill = groupPalette[groupIndices[0] % groupPalette.length];
     g.appendChild(circle);
-    const label = document.createElementNS(ns, "text");
+    const label = doc.createElementNS(ns, "text");
     label.setAttribute("x", 13);
     label.setAttribute("y", 5);
-    label.textContent = n.label + (groupIndices.length ? ` ［${groupIndices.map(index => index + 1).join(',')}］` : '');
+    label.textContent = n.label;
     label.setAttribute("title", n.id);
     g.appendChild(label);
-    const title = document.createElementNS(ns, "title");
+    const title = doc.createElementNS(ns, "title");
     title.textContent = n.id;
     g.appendChild(title);
     scene.appendChild(g);
     n.g = g;
-    n.labelEl = label;
-    n.circle = circle;
   }
   const draw = () => {
-    for (const { edge, el } of edgeEls) {
-      el.setAttribute("x1", edge.a.x);
-      el.setAttribute("y1", edge.a.y);
-      el.setAttribute("x2", edge.b.x);
-      el.setAttribute("y2", edge.b.y);
+    for (const { edge, el, arrows } of edgeEls) {
+      // 円の中心まで線を伸ばすと矢印が隠れるため、両端をノードの外周へ短縮する。
+      const distance = Math.hypot(edge.b.x - edge.a.x, edge.b.y - edge.a.y) || 1;
+      const start = Math.min((edge.a.selected ? 9 : 6) + 3, distance / 2);
+      const end = Math.min((edge.b.selected ? 9 : 6) + 3, distance / 2);
+      const dx = (edge.b.x - edge.a.x) / distance, dy = (edge.b.y - edge.a.y) / distance;
+      el.setAttribute("x1", edge.a.x + dx * start);
+      el.setAttribute("y1", edge.a.y + dy * start);
+      el.setAttribute("x2", edge.b.x - dx * end);
+      el.setAttribute("y2", edge.b.y - dy * end);
+      for (const arrow of arrows) {
+        // 円と共通の半径・線幅から算出し、先端のにじみが円に重ならない余白を取る。
+        const target = arrow.reverse ? edge.a : edge.b;
+        const source = arrow.reverse ? edge.b : edge.a;
+        const sign = arrow.reverse ? -1 : 1;
+        const { x, y } = arrowTip(source, target);
+        const length = Math.min(17, distance * 0.18), half = length * 0.45;
+        const baseX = x - dx * length * sign, baseY = y - dy * length * sign;
+        arrow.el.setAttribute('points', `${x},${y} ${baseX - dy * half},${baseY + dx * half} ${baseX + dy * half},${baseY - dx * half}`);
+      }
     }
     for (const n of nodes)
       n.g.setAttribute("transform", `translate(${n.x} ${n.y})`);
   };
   draw();
 
-  // Pan/zoom applies to the whole scene. Dragging a node changes its position and relaxes neighbors.
-  let zoom = 1,
-    panX = 0,
-    panY = 0,
-    panning = false,
-    lastX = 0,
-    lastY = 0;
-  let activeNode = null,
-    nodeMoved = false,
-    downClientX = 0,
-    downClientY = 0;
-  const applyView = () =>
-    scene.setAttribute(
-      "transform",
-      `translate(${panX} ${panY}) scale(${zoom})`,
-    );
-  zoomOut.addEventListener(EVENT.click, () => {
-    zoom = Math.max(0.25, zoom / 1.25);
-    applyView();
-  });
-  zoomIn.addEventListener(EVENT.click, () => {
-    zoom = Math.min(5, zoom * 1.25);
-    applyView();
-  });
-  reset.addEventListener(EVENT.click, () => {
-    zoom = 1;
-    panX = 0;
-    panY = 0;
-    applyView();
-  });
-  const graphPoint = (event) => {
-    const pt = svg.createSVGPoint();
-    pt.x = event.clientX;
-    pt.y = event.clientY;
-    return pt.matrixTransform(scene.getScreenCTM().inverse());
-  };
-  svg.addEventListener(
-    EVENT.wheel,
-    (event) => {
-      event.preventDefault();
-      const oldZoom = zoom;
-      const factor = Math.exp(-event.deltaY * 0.0012);
-      zoom = Math.max(0.25, Math.min(5, zoom * factor));
-      if (zoom === oldZoom) return;
-
-      // ポインター位置を基準に拡大縮小し、ズーム時の視点移動を抑える。
-      const rect = svg.getBoundingClientRect();
-      const px = (event.clientX - rect.left) * (W / rect.width);
-      const py = (event.clientY - rect.top) * (H / rect.height);
-      const ratio = zoom / oldZoom;
-      panX = px - (px - panX) * ratio;
-      panY = py - (py - panY) * ratio;
-      applyView();
-    },
-    { passive: false },
-  );
-  svg.addEventListener(EVENT.pointerdown, (event) => {
-    const group = event.target.closest?.(".alp-graph-node");
-    const node = group ? nodes.find((n) => n.g === group) : null;
-    downClientX = event.clientX;
-    downClientY = event.clientY;
-    if (node) {
-      activeNode = node;
-      nodeMoved = false;
-      svg.setPointerCapture?.(event.pointerId);
-      event.preventDefault();
-      return;
-    }
-    panning = true;
-    lastX = event.clientX;
-    lastY = event.clientY;
-    svg.setPointerCapture?.(event.pointerId);
-    svg.classList.add(CSS_CLASS.isPanning);
-  });
-  svg.addEventListener(EVENT.pointermove, (event) => {
-    if (activeNode) {
-      const pt = graphPoint(event);
-      activeNode.x = pt.x;
-      activeNode.y = pt.y;
-      if (
-        Math.hypot(event.clientX - downClientX, event.clientY - downClientY) >
-        4
-      )
-        nodeMoved = true;
-      draw();
-      return;
-    }
-    if (!panning) return;
-    const rect = svg.getBoundingClientRect();
-    // パンは画面上の移動量に追従させ、ズーム倍率で速度が変わらないようにする。
-    panX += (event.clientX - lastX) * (W / rect.width);
-    panY += (event.clientY - lastY) * (H / rect.height);
-    lastX = event.clientX;
-    lastY = event.clientY;
-    applyView();
-  });
-  const stopPointer = (event) => {
-    if (activeNode) {
-      const node = activeNode;
-      activeNode = null;
-      if (nodeMoved) {
-        // ドラッグ後に全体の力学レイアウトを再計算すると、他ノードも動いて
-        // グラフ全体がずれて見える。掴んだノードだけを表示範囲に収める。
-        node.x = Math.max(20, Math.min(W - node.labelWidth - 20, node.x));
-        node.y = Math.max(30, Math.min(H - 30, node.y));
-        draw();
-      } else if (!node.id.startsWith("#")) {
-        closeGraph();
-        plugin.app.workspace.openLinkText(node.id, "", "tab");
-      }
-    }
-    panning = false;
-    svg.classList.remove(CSS_CLASS.isPanning);
-    if (event?.pointerId !== undefined) {
-      try {
-        svg.releasePointerCapture?.(event.pointerId);
-      } catch (_) {}
-    }
-  };
-  svg.addEventListener(EVENT.pointerup, stopPointer);
-  svg.addEventListener(EVENT.pointercancel, stopPointer);
-  // Keyboard activation mirrors clicking for accessible note nodes.
-  for (const n of nodes) {
-    if (n.id.startsWith("#")) continue;
-    n.g.addEventListener(EVENT.keydown, (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        closeGraph();
-        plugin.app.workspace.openLinkText(n.id, "", "tab");
-      }
-    });
-  }
+  const disposeInteraction = bindGraphInteraction({ svg, scene, nodes, width: W, height: H,
+    zoomOut, zoomIn, reset, draw, onOpen: id => {
+      closeGraph();
+      plugin.app.workspace.openLinkText(id, '', 'tab');
+    } });
+  const previousCleanup = plugin.maint.graphCleanup;
+  plugin.maint.graphCleanup = () => { disposeInteraction(); previousCleanup?.(); };
   const legend = panel.createDiv({ cls: "alp-graph-legend" });
   legend.createSpan({ cls: "alp-graph-dot is-selected" });
   legend.createSpan({ text: t('graph.selected') });
@@ -621,6 +229,7 @@ function renderClusterGraph(plugin, parent, selection) {
     legend.createSpan({ cls: "alp-graph-line is-boundary" });
     legend.createSpan({ text: t("graph.boundary") });
   }
+  if (docked) void plugin.sidebars.show('graph', panel, closeGraph);
 }
 
-module.exports = { renderClusterGraph, bindGraphWindowPosition };
+module.exports = { renderClusterGraph };

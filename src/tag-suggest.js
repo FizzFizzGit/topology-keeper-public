@@ -3,7 +3,7 @@ const { t } = require('./i18n');
 const { Modal } = require("obsidian");
 const { TAG_SUGGEST } = require("./tag-suggest-config");
 const { buildCompoundWhitelist } = require("./tag-suggest-tokenizer");
-const { buildTagDoc, frontmatterEndOffset } = require("./tag-suggest-document");
+const { buildTagDoc, prepareTagSource } = require("./tag-suggest-document");
 const { structureSimilarity } = require("./tag-suggest-structure");
 const { createBm25Index } = require("./tag-suggest-bm25");
 const { createTagSvmTrainer } = require("./tag-suggest-svm");
@@ -16,16 +16,14 @@ async function prepareTagCorpus(app, files, corpusCache) {
     const sources = [];
     for (const file of files) {
         const raw = await app.vault.cachedRead(file);
-        const cache = app.metadataCache.getFileCache(file);
-        const start = frontmatterEndOffset(raw, cache?.frontmatterPosition?.end?.offset);
-        const text = raw.slice(start, start + TAG_SUGGEST.maxChars).replace(/```[\s\S]*?```/g, " ");
-        sources.push({ file, path: file.path, raw, text });
+        const prepared = prepareTagSource(app, file, raw);
+        sources.push({ file, path: file.path, raw, text: prepared.sourceText, prepared });
     }
     // 複数ノートで反復された分割語の連結だけを許可し、語彙特徴に追加する。
     const compoundWhitelist = buildCompoundWhitelist(sources);
     const docs = new Map();
     for (const source of sources) {
-        docs.set(source.path, await buildTagDoc(app, source.file, source.raw, compoundWhitelist));
+        docs.set(source.path, await buildTagDoc(app, source.file, source.raw, compoundWhitelist, source.prepared));
     }
     const value = { docs, index: createBm25Index(docs, TAG_SUGGEST.bm25) };
     const latest = corpusCache?.snapshot(app, files);

@@ -7,5 +7,4 @@ export const sharedBuildOptions = {
   target: "es2020",
   external: ["obsidian", "electron", "@electron/remote"],
   charset: "utf8",
-  outfile: "main.js",
 };

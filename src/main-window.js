@@ -1,4 +1,10 @@
+const { indicatorState } = require('./view-state');
+const { createDeferredRefresh } = require('./deferred-refresh');
+const { attachDrag, detachDrag, constrain, createFrame, applyAppearance, registerWindow } = require('./portable-window');
 const { t } = require('./i18n');
+const { attachInfoPopover } = require('./info-popover');
+const { sectionHelp } = require('./section-help');
+const { renderInfoContent } = require('./info-content');
 const { setIcon } = require("obsidian");
 
 const nodeLabel = (id) =>
@@ -9,6 +15,7 @@ const nodeLabel = (id) =>
 class MainWindowView {
   constructor(api) {
     this.api = api;
+    this.deferredRefresh = createDeferredRefresh(() => api.refresh());
     this.state = api.state;
     this.CSS_CLASS = api.CSS_CLASS;
     this.EVENT = api.EVENT;
@@ -21,6 +28,8 @@ class MainWindowView {
 
   build() {
     this.el = document.body.createDiv({ cls: this.CSS_CLASS.alpWin });
+    this.stacking = registerWindow(this.el);
+    applyAppearance(this.el, this.state.windowAppearance);
     const p = this.state.pos;
     if (p) {
       this.el.style.left = `${p.x}px`;
@@ -33,6 +42,9 @@ class MainWindowView {
   }
 
   dispose() {
+    this.deferredRefresh.cancel();
+    this.stacking?.dispose();
+    if (this.el) detachDrag(this.el);
     this.el?.remove();
     this.el = null;
   }
@@ -58,22 +70,16 @@ class MainWindowView {
 
   constrainToViewport() {
     const el = this.el;
-    if (!el || el.classList.contains(this.CSS_CLASS.isHidden)) return;
-    const rect = el.getBoundingClientRect();
-    const maxLeft = Math.max(0, window.innerWidth - rect.width);
-    const maxTop = Math.max(0, window.innerHeight - rect.height);
-    const left = Math.max(0, Math.min(rect.left, maxLeft));
-    const top = Math.max(0, Math.min(rect.top, maxTop));
-    el.style.left = `${left}px`;
-    el.style.top = `${top}px`;
-    el.style.right = "auto";
-    this.state.pos = { x: left, y: top };
+    if (!el || el.classList.contains(this.CSS_CLASS.isHidden) || el.classList.contains('tk-docked-window')) return;
+    this.state.pos = constrain(el, window);
   }
 
   applyVisibility() {
     this.el?.toggleClass(this.CSS_CLASS.isHidden, !this.state.visible);
     if (!this.state.visible) this.api.hideInfoPopovers();
     if (this.state.visible) this.api.scheduleMaint();
+    if (this.state.visible) this.stacking?.bringToFront();
+    if (this.el) this.api.placeWindow?.(this.el, this.state.visible);
   }
 
   iconButton(parent, icon, label, onClick) {
@@ -91,17 +97,22 @@ class MainWindowView {
     return btn;
   }
 
+  collapseSections(body, closed) {
+    let save = false;
+    for (const section of body.querySelectorAll('details[open]')) {
+      const key = section.dataset.sectionKey;
+      if (key && this.state.sections[key] !== false) {
+        this.state.sections[key] = false;
+        save = true;
+      }
+      closed?.add(section);
+      section.open = false;
+    }
+    // 状態を先にそろえるので、各項目のtoggleで保存を繰り返さない。
+    if (save) this.api.saveState();
+  }
+
   section(parent, key, title) {
-    const descriptions = {
-      orphan:
-        t("window.isolationInfo"),
-      managedOrphan:
-        t("window.managedInfo"),
-      bases:
-        t("window.basesInfo"),
-      assets:
-        t("window.assetsInfo"),
-    };
     const sectionRow = parent.createDiv({ cls: "alp-sec-row" });
     const det = sectionRow.createEl("details", { cls: "alp-sec" });
     det.dataset.sectionKey = key;
@@ -121,83 +132,17 @@ class MainWindowView {
       },
     });
     const tip = document.body.createDiv({ cls: "alp-info-popover" });
+    applyAppearance(tip, { fontScale: this.state.windowAppearance?.fontScale });
     tip.dataset.owner = sectionRow.closest(".alp-detail-win")?.dataset.infoOwner ?? "main";
-    if (key === "planar" && this.api.getResult?.()?.areaModel) {
-      tip.createEl('p', { text: t("window.areasInfo") });
-      tip.createEl('p', { text: t("window.colorsInfo") });
-    } else if (key === "planar") {
-      tip.createEl("p", {
-        text: t("area.legacyInfo"),
-      });
-      tip.createEl("p", {
-        text: t("area.legacyDensity"),
-      });
-      const list = tip.createEl("ul");
-      [
-        t("area.legacyDensePlanar"),
-        t("area.legacySparsePlanar"),
-        t("area.legacyDenseNonplanar"),
-        t("area.legacySparseNonplanar"),
-      ].forEach((description) => list.createEl("li", { text: description }));
-      tip.createEl("p", {
-        text: t("area.legacyCaveat"),
-      });
-    } else {
-      tip.setText(descriptions[key] ?? t("window.infoDefault"));
-    }
-    tip.setAttr("hidden", "hidden");
-    let closeTimer = null;
-    const hideTip = () => {
-      clearTimeout(closeTimer);
-      closeTimer = setTimeout(() => {
-        tip.setAttr("hidden", "hidden");
-        infoButton.setAttr("aria-expanded", "false");
-      }, 300);
-    };
-    const showTip = () => {
-      clearTimeout(closeTimer);
-      tip.removeAttribute("hidden");
-      infoButton.setAttr("aria-expanded", "true");
-      const rect = infoButton.getBoundingClientRect();
-      const width = Math.min(320, window.innerWidth - 24);
-      tip.style.width = `${width}px`;
-      tip.style.left = `${Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12))}px`;
-      tip.style.top = "12px";
-      const tipHeight = tip.getBoundingClientRect().height;
-      const top =
-        rect.bottom + 6 + tipHeight <= window.innerHeight - 12
-          ? rect.bottom + 6
-          : Math.max(12, rect.top - tipHeight - 6);
-      tip.style.top = `${top}px`;
-    };
-    infoButton.addEventListener("mouseenter", showTip);
-    infoButton.addEventListener("mouseleave", hideTip);
-    infoButton.addEventListener("focus", showTip);
-    infoButton.addEventListener("blur", hideTip);
-    infoButton.addEventListener(this.EVENT.click, (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      showTip();
-    });
-    tip.addEventListener("mouseenter", () => clearTimeout(closeTimer));
-    tip.addEventListener("mouseleave", hideTip);
-    infoButton.addEventListener(this.EVENT.keydown, (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        showTip();
-      }
-      if (event.key === "Escape") {
-        clearTimeout(closeTimer);
-        tip.setAttr("hidden", "hidden");
-        infoButton.setAttr("aria-expanded", "false");
-      }
-    });
+    renderInfoContent(tip, sectionHelp(key, t));
+    attachInfoPopover(infoButton, tip);
     det.addEventListener(this.EVENT.toggle, () => {
       if (this.state.sections[key] === det.open) return;
       this.state.sections[key] = det.open;
       this.api.saveState();
       const owner = det.closest(".alp-detail-win") ?? this.el;
-      this.fitWindowToContent(owner);
+      // 詳細窓は本文のcaptureリスナーで入れ子のtoggleも処理する。
+      if (owner === this.el) this.fitWindowToContent(owner);
     });
     return det;
   }
@@ -211,67 +156,46 @@ class MainWindowView {
     }
   }
 
-  render(force = false) {
+  render(force = false, renderDetails = true) {
     const pointerHeldAt = this.api.getPointerHeldAt();
     if (pointerHeldAt && Date.now() - pointerHeldAt < 2000) {
-      setTimeout(() => this.api.refresh(), 300);
+      this.deferredRefresh.schedule();
       return;
     }
     const el = this.el;
     if (!el) return;
     const r = this.api.getResult();
     const ext = this.api.computeExternal();
+    const { managedCount, orphanCount, crossingCount } = indicatorState(r);
     const sig = JSON.stringify([
-      t('common.areaCandidates'),
-      r && [
-        r.orphans.map((f) => f.path),
-        r.strayThumbs.map((f) => f.path),
-        r.orphanBases.map((f) => f.path),
-        r.planar && [
-          r.planar.k5,
-          r.planar.k33,
-          r.planar.definite,
-          r.planar.suspect,
-          r.planar.safe,
-          r.planar.hotspots,
-          r.planar.remainder,
-          r.planar.boundaryEdges,
-          r.planar.meanDensityChange,
-          r.planar.truncated,
-        ],
-      ],
-      r?.analysisError,
-      r?.maintenanceReady,
-      r?.areaModel,
-      r?.noteIsolation && [r.noteIsolation.ready, ...['isolated', 'tagOnly', 'allowed'].map(key => r.noteIsolation[key].map(file => file.path))],
-      ext && [
-        ext.file.path,
-        ext.main,
-        ext.entries.map((e) => [e.raw, e.kind, e.label]),
-      ],
+      t('common.areaCandidates'), managedCount, orphanCount, crossingCount,
+      r?.maintenanceReady, r?.noteIsolation?.ready, r?.analysisError,
+      ext && [ext.file.path, ext.main, ext.entries.map(e => [e.raw, e.kind, e.label])],
     ]);
-    if (!force && sig === this.sig) return;
+    if (!force && sig === this.sig) {
+      if (renderDetails) this.api.renderDetail?.();
+      return;
+    }
     this.sig = sig;
 
     const scrollTop = el.querySelector(".alp-win-body")?.scrollTop ?? 0;
-    this.api.disposeGraphListeners();
+    // 部分グラフは分析窓が所有する。メイン窓の更新では破棄しない。
     this.api.removeInfoPopovers("main");
     el.empty();
 
-    const orphanCount = r?.noteIsolation ? r.noteIsolation.ready ? r.noteIsolation.isolated.length : null : r
-      ? r.orphans.length + r.strayThumbs.length + r.orphanBases.length
-      : null;
-    const crossingCount = r?.areaModel?.parents ? r.areaModel.parents.length : r?.areaModel ? r.areaModel.originalAreas.length : r?.planar
-      ? r.planar.safe.length + r.planar.definite.length + r.planar.hotspots.length + (r.planar.remainder?.length ?? 0)
-      : null;
     el.toggleClass("has-issues", (orphanCount ?? 0) > 0);
 
-    const head = el.createDiv({ cls: "alp-win-head" });
+    // 共通ライブラリで枠を生成し、Obsidian固有の中身だけをここで描く。
+    const { head, body } = createFrame(el, { headClass: 'alp-win-head', bodyClass: 'alp-win-body' });
     const mark = head.createSpan({ cls: "alp-win-mark" });
     setIcon(mark, this.ICON.network);
     head.createSpan({ cls: "alp-win-title", text: "Topology Keeper" });
-    this.iconButton(head, "refresh-cw", t("window.recheck"), () =>
-      this.api.runMaint(true, true),
+    this.iconButton(head, 'fold-vertical', t('window.collapseAll'), () => {
+      this.collapseSections(body);
+      this.fitWindowToContent();
+    });
+    this.iconButton(head, "settings", t("window.openSettings"), () =>
+      this.api.openSettings(),
     );
     this.iconButton(head, "locate-fixed", t("window.resetMain"), () => {
       this.resetPosition();
@@ -279,7 +203,6 @@ class MainWindowView {
     });
     this.enableDrag(el, head);
 
-    const body = el.createDiv({ cls: "alp-win-body" });
     const indicators = body.createDiv({ cls: "alp-indicators" });
     const orphan = indicators.createEl("button", {
       cls: `alp-indicator alp-indicator-orphan${(orphanCount ?? 0) > 0 ? " is-alert" : ""}`,
@@ -291,7 +214,10 @@ class MainWindowView {
       text: orphanCount == null ? "…" : String(orphanCount),
     });
     orphan.createDiv({ cls: "alp-indicator-label", text: this.UI_TEXT.orphan });
-    orphan.setAttr("title", r?.noteIsolation ? t("window.isolationTip") : t("window.managedTip"));
+    orphan.setAttr("title", r?.noteIsolation ? t("window.isolationTip", {
+      notes: r.noteIsolation.ready ? r.noteIsolation.isolated.length : '…',
+      managed: r.maintenanceReady !== false ? managedCount : '…',
+    }) : t("window.managedTip"));
 
     const crossing = indicators.createEl("button", {
       cls: "alp-indicator alp-indicator-crossing",
@@ -359,6 +285,15 @@ class MainWindowView {
       if (this.api.isMainNote(file)) this.api.suggestTags(file);
     });
 
+    const webThumbnail = actions.createEl('button', {
+      cls: this.CSS_CLASS.alpActionButton,
+      attr: { type: 'button', title: t('window.webThumbnail'),
+        'aria-label': t(canAdd ? 'window.webThumbnail' : 'window.webThumbnailDisabled') },
+    });
+    setIcon(webThumbnail.createSpan(), 'globe');
+    webThumbnail.disabled = !canAdd;
+    webThumbnail.addEventListener(this.EVENT.click, () => this.api.createWebThumbnail());
+
     const createBase = actions.createEl("button", {
       cls: this.CSS_CLASS.alpActionButton,
       attr: { title: t("window.createBase") },
@@ -373,6 +308,7 @@ class MainWindowView {
     );
 
     const manager = body.createEl("details", { cls: "alp-file-management" });
+    manager.dataset.sectionKey = 'fileManagement';
     manager.open = !!this.state.sections.fileManagement;
     const managerSummary = manager.createEl("summary", {
       cls: "alp-file-management-summary",
@@ -390,7 +326,7 @@ class MainWindowView {
 
     body.scrollTop = scrollTop;
     this.fitWindowToContent();
-    if (this.api.isDetailVisible()) this.api.renderDetail();
+    if (renderDetails && this.api.isDetailVisible()) this.api.renderDetail();
   }
 
   fitWindowToContent(targetEl = this.el) {
@@ -405,69 +341,27 @@ class MainWindowView {
         ? ".alp-detail-head"
         : ".alp-win-head",
     );
-    if (!el || !body || !head || el.classList.contains(this.CSS_CLASS.isHidden))
+    if (!el || !body || !head || el.classList.contains(this.CSS_CLASS.isHidden) || el.classList.contains('tk-docked-window'))
       return;
-    const isDetail = targetEl?.classList.contains(this.CSS_CLASS.alpDetailWin);
-    const available = Math.max(
-      120,
-      Math.floor(window.innerHeight * (isDetail ? 0.92 : 0.88)),
-    );
-    let contentBottom = 0;
-    const bodyRect = body.getBoundingClientRect();
-    for (const child of body.children) {
-      contentBottom = Math.max(
-        contentBottom,
-        child.getBoundingClientRect().bottom - bodyRect.top + (body.scrollTop ?? 0),
-      );
-    }
-    const bodyStyle = getComputedStyle(body);
-    const bodyPadding =
-      (parseFloat(bodyStyle.paddingTop) || 0) +
-      (parseFloat(bodyStyle.paddingBottom) || 0);
-    const desired = Math.ceil(
-      head.offsetHeight + contentBottom + bodyPadding + 2,
-    );
-    const height = Math.max(
-      head.offsetHeight + 8,
-      Math.min(desired, available),
-    );
-    el.style.minHeight = `${height}px`;
-    el.style.height = `${height}px`;
+    // 内容高をブラウザに測らせ、下限・上限はCSSで制限する。
+    // JSでmin-heightを固定すると下限設定が効かなくなるため、旧インライン値も解除する。
+    el.style.minHeight = "";
+    el.style.height = "auto";
+    // 内容の展開で画面一杯まで伸びた場合も、タイトルバーごと画面内に収める。
+    constrain(el, el.ownerDocument.defaultView);
   }
 
   enableDrag(el, handle) {
-    handle.addEventListener("mousedown", (e) => {
-      if (e.target.closest(".alp-btn")) return;
-      const rect = el.getBoundingClientRect();
-      const dx = e.clientX - rect.left;
-      const dy = e.clientY - rect.top;
-      const move = (ev) => {
-        const rect = el.getBoundingClientRect();
-        const maxLeft = Math.max(0, window.innerWidth - rect.width);
-        const maxTop = Math.max(0, window.innerHeight - rect.height);
-        const x = Math.max(0, Math.min(ev.clientX - dx, maxLeft));
-        const y = Math.max(0, Math.min(ev.clientY - dy, maxTop));
-        el.style.left = `${x}px`;
-        el.style.top = `${y}px`;
-        el.style.right = "auto";
-      };
-      const up = async () => {
-        document.removeEventListener("mousemove", move);
-        document.removeEventListener("mouseup", up);
-        const position = {
-          x: parseFloat(el.style.left),
-          y: parseFloat(el.style.top),
-        };
-        if (el.classList.contains(this.CSS_CLASS.alpDetailWin))
-          (el.setWindowPosition ?? this.api.setDetailPosition)(position);
-        else this.state.pos = position;
-        await this.api.saveState();
-      };
-      document.addEventListener("mousemove", move);
-      document.addEventListener("mouseup", up);
-      e.preventDefault();
-    });
+    // 汎用部品はObsidianの設定を知らない。完了座標を既存stateへ渡す接着部分。
+    // 戻り値の解除関数は詳細窓側が保持し、再描画・閉じる・破棄時に呼ぶ。
+    return attachDrag(el, handle, { canDrag: () => !el.classList.contains('tk-docked-window'), onPosition: async position => {
+      if (el.classList.contains(this.CSS_CLASS.alpDetailWin))
+        (el.setWindowPosition ?? this.api.setDetailPosition)(position);
+      else this.state.pos = position;
+      await this.api.saveState();
+    } });
   }
+
 }
 
 module.exports = MainWindowView;

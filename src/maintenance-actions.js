@@ -15,7 +15,7 @@ const { Notice, TFile } = require("obsidian");
 // メタノートと、その cover が指すサムネイル（あれば）を削除する。
 async function trashMeta(plugin, file) {
   const fresh = plugin.computeOrphans();
-  if (plugin.importWorkflow?.importing || plugin.state?.pendingImport || fresh.ready === false ||
+  if (deletionPaused(plugin, fresh) ||
       !fresh.orphans.some(candidate => candidate.path === file.path)) return false;
   const thumb = plugin.externalFileActions.getThumbnailForMeta(file);
   const shared = thumb instanceof TFile && plugin.app.vault.getMarkdownFiles().some(note =>
@@ -33,8 +33,14 @@ async function trashMeta(plugin, file) {
   return true;
 }
 
+// 個別削除と一括削除で停止条件を共有する。判定結果を渡す場合も呼び出し内の新鮮な結果に限る。
+function deletionPaused(plugin, fresh = plugin.computeOrphans()) {
+  return !!(plugin.importWorkflow?.importing || plugin.webThumbnails?.controller
+    || plugin.state?.pendingImport || fresh.ready === false);
+}
+
 function canDelete(plugin) {
-  if (plugin.importWorkflow?.importing || plugin.state?.pendingImport || plugin.computeOrphans().ready === false) {
+  if (deletionPaused(plugin)) {
     new Notice(t("cleanup.paused"));
     return false;
   }
@@ -52,11 +58,11 @@ async function trashOne(plugin, file) {
   if (!canDelete(plugin)) return;
   if (!await trashMeta(plugin, file)) {
     new Notice(t("cleanup.noteChanged"));
-    plugin.maintenance.run(true);
+    plugin.maintenance.run(true, false, 'orphan');
     return;
   }
   new Notice(t("cleanup.trashed"));
-  plugin.maintenance.run(true);
+  plugin.maintenance.run(true, false, 'orphan');
 }
 
 // 一括削除は、一覧の表示後に Vault が変わっている可能性があるため、確認前に再判定する。
@@ -65,7 +71,7 @@ async function trashOrphans(plugin) {
   const fresh = plugin.computeOrphans();
   if (fresh.orphans.length + fresh.strayThumbs.length === 0) {
     new Notice(t("cleanup.none"));
-    plugin.maintenance.run(true);
+    plugin.maintenance.run(true, false, 'orphan');
     return;
   }
   if (
@@ -89,7 +95,7 @@ async function trashOrphans(plugin) {
   new Notice(
     t('cleanup.bulkDone', { notes: removedMeta, images: removedThumbs }),
   );
-  plugin.maintenance.run(true);
+  plugin.maintenance.run(true, false, 'orphan');
 }
 
 async function trashOrphanBase(plugin, file) {
@@ -97,7 +103,7 @@ async function trashOrphanBase(plugin, file) {
   const fresh = plugin.computeOrphans();
   if (!fresh.orphanBases.some((candidate) => candidate.path === file.path)) {
     new Notice(t("cleanup.baseChanged"));
-    plugin.maintenance.run(true);
+    plugin.maintenance.run(true, false, 'orphan');
     return;
   }
   if (
@@ -109,7 +115,7 @@ async function trashOrphanBase(plugin, file) {
   if (!canDelete(plugin) || !plugin.computeOrphans().orphanBases.some(candidate => candidate.path === file.path)) return;
   await plugin.app.fileManager.trashFile(file);
   new Notice(t("cleanup.baseDone"));
-  plugin.maintenance.run(true);
+  plugin.maintenance.run(true, false, 'orphan');
 }
 
 async function trashOrphanBases(plugin) {
@@ -117,7 +123,7 @@ async function trashOrphanBases(plugin) {
   const fresh = plugin.computeOrphans();
   if (fresh.orphanBases.length === 0) {
     new Notice(t("cleanup.noBases"));
-    plugin.maintenance.run(true);
+    plugin.maintenance.run(true, false, 'orphan');
     return;
   }
   if (
@@ -137,7 +143,7 @@ async function trashOrphanBases(plugin) {
   new Notice(
     t('cleanup.basesDone', { count: removed }),
   );
-  plugin.maintenance.run(true);
+  plugin.maintenance.run(true, false, 'orphan');
 }
 
 module.exports = {

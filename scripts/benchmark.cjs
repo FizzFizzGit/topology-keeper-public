@@ -6,7 +6,7 @@ const { performance } = require('node:perf_hooks');
 const { buildAdjacency, findNonPlanar } = require('../src/graph-analysis');
 const { assessTagRoles } = require('../src/tag-role');
 const { TagSuggestionCache } = require('../src/tag-suggest-cache');
-const { CONFIG, FOLDERS } = require('../src/plugin-settings');
+const { CONFIG, DEFAULT_FOLDERS: FOLDERS } = require('../src/plugin-settings');
 const getAllTags = cache => cache?.tags?.map(tag => tag.tag) ?? [];
 class TFile {}
 let metrics;

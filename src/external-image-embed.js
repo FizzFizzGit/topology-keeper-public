@@ -24,9 +24,8 @@
 const { TFile } = require("obsidian");
 const fs = require("fs");
 const path = require("path");
-// FOLDERS は、設定画面で変更されても同じ参照のまま中身が更新される（plugin-settings.js 参照）ので、
-// 直接読む。IMAGE_MIME_TYPES は、画像として扱う拡張子と MIME タイプの唯一の定義。
-const { FOLDERS, IMAGE_MIME_TYPES, CONFIG } = require("./plugin-settings");
+// 管理フォルダは注入されたgetSettingsから読む。画像形式は固定の定義を共有する。
+const { IMAGE_MIME_TYPES, CONFIG } = require("./plugin-settings");
 const { readImageFile } = require("./image-file");
 const { pathFromSource, filenameFromSource } = require("./source-url");
 
@@ -34,7 +33,7 @@ class ExternalImageEmbed {
   // 【入力】
   //   app  : Obsidian の App。metadataCache でリンク先の解決とメタノートの frontmatter 取得に使う。
   //   deps : main.js が持つ共通の部品。モジュール間で同じ判定・変換を使うため、ここでは再定義せず受け取る。
-  //          （設定に由来する FOLDERS と IMAGE_MIME_TYPES は、plugin-settings.js から直接読む。）
+  //          getSettings()はプラグインインスタンスの最新設定を返す。
   //     inFolder(file, folder)   : file（TFile）が folder（Vault 相対パス）の配下か。
   //     isImage(pathOrName)      : 拡張子が画像として扱うもの（CONFIG.imageExtensions）か。
   //     embedClass         : 画像に差し替えた埋め込み要素に付ける CSS クラス名。
@@ -94,7 +93,7 @@ class ExternalImageEmbed {
         linkPath,
         ctx.sourcePath,
       );
-      if (!(target instanceof TFile) || !inFolder(target, FOLDERS.meta))
+      if (!(target instanceof TFile) || !inFolder(target, this.deps.getSettings().folders.meta))
         continue;
 
       const source =

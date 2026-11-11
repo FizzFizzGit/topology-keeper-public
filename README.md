@@ -1,36 +1,30 @@
 # Topology Keeper
 
-## Area analysis in 0.29.0
+See the [documentation index](docs/README.md) for specifications, design notes and release documents.
 
-The mathematical background belongs in this README rather than the settings page: planarity means that a graph can be drawn without crossing edges. The checks use K₅/K₃,₃ structures and degree conditions related to subdivisions in Kuratowski's theorem, after pruning low-degree vertices and suppressing degree-two vertices. Checks apply to the resulting areas, not to the entire vault or the quality of note content.
+See [Window UI architecture](docs/design/UI-ARCHITECTURE.md) for reusable components, the bilingual standalone demo, module boundaries and remaining extraction candidates.
 
-The orphan indicator now checks ordinary notes across the vault. Notes without incoming or outgoing links to other ordinary notes and without shared-tag connections are counted for review. Tag-only connections are listed separately. Configure an optional vault-relative **folder allowing isolated notes** (such as `未分類`); its descendants are excluded from the review count and listed as allowed. Empty means no folder exception. This does not move or delete notes. Generated metadata cleanup remains in a collapsed maintenance section.
+In **Window appearance**, set the font scale, width, and height bounds of the main, analysis, and isolation windows. Floating windows default to 280px wide, fit narrow screens, and adjust their height to the content. In **Window placement**, choose a floating window, left sidebar tab, or right sidebar tab separately for the main, analysis, isolation, and partial graph windows.
 
-Tag contributions to structural grouping are assessed using other shared tags, direct note links, and distribution across tag-free link components. The candidate tag is excluded from its own evidence, and ubiquitous co-tags contribute less. Tags with sufficient evidence but weak cohesion contribute less to grouping while remaining visible as cross-area connections. Insufficient evidence leaves their weight unchanged. Expand a combined area to inspect the reasons. These are provisional structural estimates, not semantic labels such as “diary” or “topic.”
+## Area analysis
 
-When direct note links support several independent communities, that partition takes priority. Shared tags remain as cross-area connections, reducing excessive merging caused by a single tag. Without sufficient direct-link evidence, weighted structural grouping remains the fallback.
+Use the refresh button in the analysis title bar to calculate distance areas. Expand an area to inspect its **primitive areas**, which are groups of directly linked notes, and **combined areas**, which connect groups or individual notes through shared tags. Cross-area tag connections are listed with their destinations. Repeated connections link to the first occurrence.
 
-Partial graph windows remember their dragged position and resized dimensions across reopening and plugin reloads. Saved geometry is constrained to the available viewport.
+The analysis result and shortest-hop table are saved for reuse after restart. Subsequent runs update affected distances when connections change. The main indicator counts the parent areas.
 
-For repeated tag connections with the same graph content, only the first occurrence has a partial-graph button. Later occurrences offer a button that expands the first area's entry and scrolls to its connection. Display order determines priority, so hotspots take precedence over the undetermined remainder.
+Partial graphs show actual note and tag connections, including the direction of note links. Floating partial graphs remember their position and size. The analysis window can also apply the four combined-area colors to Obsidian's standard graph.
 
-Expand a finding (planar, nonplanar, hotspot, or undetermined remainder outside hotspots) to inspect its internal **areas** and tag-based **combined areas**. Internal areas are connected groups of notes using direct links within that parent, including pairs and chains. The indicator displays only the count of parent findings.
-
-The previous dense/sparse, planar/nonplanar groups and hotspots remain the entry points. Undetermined findings are displayed as hotspots plus the remaining parts, rather than also listing the whole undetermined parent. The remainder includes sparse parts and small groups that fail the hotspot conditions. Follow a hotspot to its internal note groups and connecting tags. Combined-area lists and counts include only connections within that parent. Cross-parent connections appear as short references with destination names in a separate subsection inside each related parent. Their graph buttons open the shared cross-area relationship; it is not listed twice as an internal combined area. There is no separate top-level list of internal areas or connections. Overlapping parents can contain separate views of the same notes; this is not a disjoint partition of the vault.
-
-The partial graph distinguishes constituent areas by color and numbered labels. Tag edges connect only notes carrying that tag. Connections through different tags are kept separate rather than merged transitively. Partial graphs show up to 90 nodes and indicate omissions.
-
-Planarity labels inside primitive areas refer to their direct note-link graphs. Combined areas have no planarity classification. Standard graph colors follow the major findings: nonplanar, hotspot, planar, and undetermined remainder, in that priority order for shared notes. Coloring includes original notes along contracted paths. Undetermined parts default to a configurable blue-gray. Notes connected only through tags, without a structural area, are not included as combined areas in this version.
+The isolation indicator counts ordinary notes requiring review and orphaned managed data. Tag-only connections and notes in a configured exclusion folder appear in separate lists.
 
 English | [日本語](README.ja.md)
 
 Topology Keeper is a desktop-only Obsidian plugin that helps you explore the structure of your notes through links and tags. It provides graph area analysis, tag suggestions, and tools for associating local external files with notes.
 
-This is an experimental release. Development and automated tests have been performed on Windows. Compatibility with macOS, Linux, and the declared minimum Obsidian version still needs verification. For 0.29.0, English UI coverage includes settings, commands, the main and analysis windows, partial graphs, tag suggestions, external file operations, import recovery, and cleanup confirmations. Some internal errors and developer logs may still be Japanese. Reload the plugin after changing language. English UI and modal display have been confirmed by the user; exhaustive visual checks across all screens and widths remain pending.
+Development and automated tests have been performed on Windows. Compatibility with macOS, Linux, and the declared minimum Obsidian version still needs verification. English UI coverage includes settings, commands, the main and analysis windows, partial graphs, tag suggestions, external file operations, import recovery, and cleanup confirmations. Some internal errors and developer logs may still be Japanese. Reload the plugin after changing language. English UI and modal display have been confirmed by the user; exhaustive visual checks across all screens and widths remain pending.
 
 ## Features
 
-- Analyze graph areas using link density and evidence of planarity or non-planarity.
+- Analyze distance areas and classify their combined areas by average connections and planarity.
 - Inspect an area's notes in an interactive graph with dragging, zooming, and surrounding nodes.
 - Apply area classification colors to Obsidian's standard graph.
 - Suggest tags based on note content and relationships.
@@ -50,7 +44,7 @@ While community directory approval is pending, install manually:
 3. Place the three files in `<vault>/.obsidian/plugins/topology-keeper/`.
 4. Start Obsidian and enable **Topology Keeper** in the Community plugins settings.
 
-The version and declared minimum Obsidian version are recorded in `manifest.json`. Use a test vault with a backup when trying this experimental release.
+The version and declared minimum Obsidian version are recorded in `manifest.json`. Use a test vault with a backup when trying the plugin.
 
 ### Migrating from the earlier local version
 
@@ -62,7 +56,7 @@ Local deployment scripts preserve an existing installation's ID capitalization a
 
 ### Explore note structure
 
-Use the **孤立** (Orphans) and **エリア候補** (Area candidates) indicators in the main window to open their separate windows. Area candidates include planar areas. Each area starts collapsed; its graph button remains visible. Use **再チェック** (Recheck) to refresh the results. Open an area's graph to inspect its nodes; drag nodes to adjust their layout, use the mouse wheel or zoom buttons, and click a note to open it in a tab. Resize the graph using its bottom-right handle.
+Use the **孤立** (Orphans) and **エリア** (Areas) indicators in the main window to open their separate windows. Displayed areas are candidates inferred from graph structure and include planar areas. Each area starts collapsed; its graph button remains visible. Use **再チェック** (Recheck) to refresh the results. Open an area's graph to inspect its nodes; drag nodes to adjust their layout, use the mouse wheel or zoom buttons, and click a note to open it in a tab. Resize the graph using its bottom-right handle.
 
 Drag a window's title bar to move it. Positions are saved for the next session. The main, analysis, and orphan windows have position reset buttons; the settings page and the **小窓・詳細窓の位置をリセット** command reset these windows.
 
@@ -89,27 +83,23 @@ If the original note was moved, restore its original path before recovery. After
 - Automatically opening original images and embedding external images are both **off by default**. Enable them under **外部ファイル** in settings only for vaults you trust. Reopen affected notes after changing the embedding setting.
 - External references use local `file:` URLs. Network paths are not supported. Opening a file also rejects common executable and script extensions, but this is not a document malware scanner.
 - Metadata notes store the original file's **absolute path** in `source`. Sharing a vault can reveal usernames and folder names. Paths may need adjustment on another computer. Thumbnails also contain image content.
-- The plugin has no external API submission or telemetry implementation. Documents opened in another application follow that application's network behavior.
+- The plugin uses no telemetry or external screenshot service. Web thumbnail capture contacts the selected page and its resources. Documents opened in another application follow that application's network behavior.
 - Image reads are limited to **32 MiB per file**. The original image byte cache is limited to **128 MiB and 64 entries**. These limits do not cap decoded image memory or total application memory.
 - Cleanup asks for confirmation and uses Obsidian's configured trash behavior. It is blocked while notes are unparsed or an import is running or unfinished. Thumbnails referenced elsewhere are protected.
-- Cleanup candidates are limited to identifiable metadata notes and UUID-named Bases and WebP thumbnails. Legacy metadata notes need a UUID filename and a valid local source reference. Tagged metadata notes are excluded from orphan cleanup.
+- The metadata folder is dedicated to metadata notes; Markdown files there need no marker property. Other cleanup candidates are UUID-named Bases and WebP thumbnails, plus recorded UUID-named PNG web screenshots in their configured folders. Referenced files and tagged metadata notes are excluded from orphan cleanup.
 - Reference checks depend on Obsidian's metadata cache. Synchronization and concurrent editing can still introduce races. Keep backups and review deletion candidates.
 
 Managed folders are configurable. Changing a folder setting does not move existing files; files left in an earlier folder are no longer managed by that setting.
 
 ## Understanding area analysis
 
-The graph contains Markdown notes and tags, with edges for note links and tag assignments. Analysis removes vertices of degree zero or one and suppresses degree-two vertices. It then divides biconnected components into groups with concentrated internal links using modularity. Partitions containing fewer than three vertices, or groups whose internal edge count is no greater than their external edge count, are rejected. Biconnected components are extracted again after splitting.
+Distance analysis uses a graph of notes and tags, with an edge for each direct link or tag assignment. Floyd–Warshall calculates shortest hop counts. Neighborhood overlap determines boundary votes. Edges above the provisional 2.5% split-vote threshold separate distance areas. The current limit is 256 vertices.
 
-Each resulting area is classified as follows:
+Planarity is checked on the connections within each primitive or combined area. The check uses edge bounds and K₅ and K₃,₃ patterns, then tests edge orders or left–right cycle constraints when needed. Combined areas use average connections per vertex, including note and tag vertices. The provisional dense threshold is 3.5 connections per vertex.
 
-- **Non-planar:** the area exceeds the planar edge bound `E > 3V - 6`, or a K5 or K3,3 pattern is detected.
-- **Planar:** the area has fewer than five vertices of degree at least four and fewer than six vertices of degree at least three, ruling out subdivisions of K5 and K3,3. This is a sufficient condition for planarity.
-- **Hotspot:** an area with undetermined planarity, further divided using differences in neighborhood density. Displayed hotspots contain at least three nodes and have at least 25% edge density. A hotspot does not imply non-planarity.
+The four configurable defaults are orange for dense planar, blue for sparse planar, red for dense nonplanar, and gray for sparse nonplanar. Undetermined combined areas have no color. A note shared by multiple combined areas takes the color of the largest classified area in the standard graph.
 
-The dense/sparse and planar/non-planar categories are structural indicators. They do not measure note quality or prove that a classification is correct. Links between areas are excluded from each area's planarity test, so these results do not establish planarity of the entire vault. Boundary candidates and mean density change are experimental measures.
-
-Analysis is interrupted at a checkpoint after an approximately ten-second time budget, retaining a matching previous result and graph if available. This is not a strict wall-clock limit. Standard graph coloring uses a private Obsidian API and may stop working after an Obsidian update; the plugin shows a notice if it cannot use that API.
+The analysis checks its time budget periodically and keeps the previous result if recalculation fails. Standard graph coloring depends on Obsidian's internal graph API. See the [specification](docs/specification/SPECIFICATION.ja.md) for details.
 
 ## Development
 
@@ -119,13 +109,23 @@ Node.js 24 is used for development and testing. Install dependencies with `npm c
 | --- | --- |
 | `npm test` | Run automated tests for analysis, positions, cleanup protection, external access, recovery, and deployment. |
 | `npm run check` | Check JavaScript syntax and manifest/version consistency. |
-| `npm run build` | Create a minified `main.js` without deployment or Git changes. |
+| `npm run build` | Build directly to `PLUGIN_DIR` in development (required), or to `dist/<version>/` in the public repository. No intermediate local bundle is generated. |
 | `npm run package` | Validate, test, and build the three release files under the public repository’s `dist/<version>/`. No source snapshot is generated. |
 
 Install Node.js and run `npm ci` to install build dependencies. The public repository includes source verification and release build scripts; local deployment and watch scripts are kept in the development repository. Build scripts do not stage, commit, or push files.
 
-Edit plugin code in `src/`; the root `main.js` is a generated bundle, and `styles.css` contains the plugin styles. The [Japanese documentation](README.ja.md) includes a module reference. Manual compatibility and UI checks are tracked in [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md), currently in Japanese.
+Edit plugin code and styles in `src/`, including `src/styles.css`. JavaScript is built directly into the installation or release folder. CSS is copied there as `styles.css`; no intermediate local bundle or root CSS copy is generated. The [Japanese documentation](README.ja.md) includes a module reference. Manual compatibility and UI checks are tracked in [RELEASE-CHECKLIST.md](docs/releases/RELEASE-CHECKLIST.md), currently in Japanese.
 
 ## License
 
 [ISC](LICENSE).
+
+## Web page thumbnail links (desktop prototype)
+
+Open an ordinary Markdown note and use the globe button in the main window to enter a URL. With no URL selected, the image is inserted at the saved cursor position. Alternatively, select an HTTP(S) URL or Markdown link and run **Replace selected URL with a thumbnail link**. The modal lets you edit the URL before capture. A line containing only the URL also works without a selection. Choose a width of 64–1024px (default 256px) before capture and optionally draw the page title in a translucent overlay inside the image. Review the screenshot and choose **Save and insert**. The saved PNG includes a dark title box at the bottom, with wrapped white text. Only the image links to the original URL; no separate title link is inserted; image references use only the unique filename. The image link is inserted as a blockquote, prefixed with >.
+
+The page is captured in an isolated temporary browser session at 1280×900 and resized to your chosen width. Reading view respects each recorded width. It does not share your normal browser login. Cookie prompts or login screens may appear. Capture uses offscreen rendering, waits for images, fonts and rendering frames, then retries blank or undersized screenshots. Unusable images are not saved. The overall timeout is 25 seconds. Availability depends on the Electron bridge provided by Obsidian; actual capture in Obsidian remains unverified.
+
+PNG files are saved as UUID.png in the configured thumbnail folder, checking filename uniqueness across the vault. Generated paths and widths are recorded in data.json for display and orphan detection. No image is saved when you cancel. Source-note changes cancel insertion. Removing the image link leaves the saved PNG, which then appears as an orphan thumbnail under generated-data cleanup if no other note references it. Cleanup requires confirmation and uses the configured trash destination. Body links, embeds and cover references protect shared images; deletion is paused during web thumbnail creation.
+
+The **Isolated** indicator totals isolated ordinary notes and orphaned generated files (metadata notes, thumbnails and Bases). Its tooltip shows the two counts; the isolation window keeps ordinary notes and generated-data cleanup separate. Tag-only connections and excluded folders are not included in the total.

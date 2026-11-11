@@ -1,20 +1,57 @@
 const { t } = require('./i18n');
 const { Notice } = require("obsidian");
-const { CONFIG, getHighlightColor } = require("./plugin-settings");
+const { areaSelection } = require('./area-model');
+const { combinedAreaCategory, combinedAreaColors, combinedAreaMeanDegree } = require('./combined-area-style');
 
-// 領域のノートを標準グラフの共有色グループとして保存し、グラフを再読み込みする。
-//
-// 【入力】 plugin は main.js のプラグイン本体で、app / state / saveData を提供する。
-//   plugin.maint.result.planar は findNonPlanar の結果。definite / hotspots / safe の各領域を
-//   非平面 / ホットスポット / 平面の検索グループにまとめる。タグ頂点は path 検索から除外する。
-// 【入出力】 app.internalPlugins.plugins.graph の非公開 API から標準グラフ設定全体を読み、
-//   colorGroups だけを更新して保存する。前回のプラグイン管理グループだけを置き換えるため、
-//   利用者の色グループは残る。
-//   標準グラフの設定は全ビューで共有される。既存グラフは閉じず、新しいタブにグラフを開く。
-//   検索フィルター等の設定は変更せず、色グループだけを追加する。
-//   利用者の環境ではコアプラグインの disable / enable は不要と確認済み。
-//   対応 API が無い場合や失敗時は通知する。
-async function openClusterInStandardGraph(plugin) {
+function graphRgb(color) {
+  if (/^#[\da-f]{6}$/i.test(color)) return Number.parseInt(color.slice(1), 16);
+  // CSS変数や色の混合はテーマ上で解決する。標準グラフにはRGBの整数を渡す。
+  const probe = document.body.createSpan();
+  try {
+    probe.style.color = color;
+    const resolved = document.defaultView.getComputedStyle(probe).color;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = resolved;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+    return (r << 16) | (g << 8) | b;
+  } finally {
+    probe.remove();
+  }
+}
+
+function combinedGraphColors(model, state) {
+  if (!model) return [];
+  const colors = combinedAreaColors({
+    planar: state.graphPlanarColor,
+    nonplanar: state.graphNonPlanarColor,
+    densePlanar: state.clusterHighlightColor,
+    undetermined: state.graphUndeterminedColor,
+  });
+  const areas = model.combinedAreas.filter(area => area.scope === 'within-parent')
+    .sort((a, b) => b.noteCount - a.noteCount || a.tag.localeCompare(b.tag));
+  const assigned = new Set();
+  const byCategory = new Map();
+  for (const area of areas) {
+    const selection = areaSelection(model, area.id);
+    const category = combinedAreaCategory(area.classification, combinedAreaMeanDegree(selection));
+    if (category === 'undetermined') continue;
+    for (const node of selection.nodes) {
+      if (node.startsWith('#') || assigned.has(node)) continue;
+      assigned.add(node);
+      if (!byCategory.has(category)) byCategory.set(category, []);
+      byCategory.get(category).push(`path:"${node.replace(/"/g, '\\"')}"`);
+    }
+  }
+  return [...byCategory].map(([category, paths]) => ({
+    query: paths.join(' OR '), color: { a: 1, rgb: graphRgb(colors[category]) },
+  }));
+}
+
+// 結合領域の4区分を反映し、標準グラフを新しいタブに開く。
+async function openStandardGraph(plugin) {
   const graphPlugin = plugin.app.internalPlugins?.plugins?.graph?.instance;
   if (!graphPlugin?.options || typeof graphPlugin.saveOptions !== "function") {
     new Notice(
@@ -23,81 +60,25 @@ async function openClusterInStandardGraph(plugin) {
     return;
   }
 
-  const planar = plugin.maint.result?.planar;
-  if (!planar) {
-    new Notice(t("notice.noAnalysis"));
-    return;
-  }
-
-  const claimed = new Set();
-  const categories = [
-    {
-      areas: planar.definite ?? [],
-      color: plugin.state.graphNonPlanarColor ?? CONFIG.graphNonPlanarColor,
-      fallback: CONFIG.graphNonPlanarColor,
-    },
-    {
-      areas: planar.hotspots ?? [],
-      color: getHighlightColor(plugin.state),
-      fallback: CONFIG.clusterHighlightColor,
-    },
-    {
-      areas: planar.safe ?? [],
-      color: plugin.state.graphPlanarColor ?? CONFIG.graphPlanarColor,
-      fallback: CONFIG.graphPlanarColor,
-    },
-    {
-      areas: planar.remainder ?? [],
-      color: plugin.state.graphUndeterminedColor ?? CONFIG.graphUndeterminedColor,
-      fallback: CONFIG.graphUndeterminedColor,
-    },
-  ];
-  const colorGroups = [];
-  for (const { areas, color, fallback } of categories) {
-    const paths = new Set();
-    for (const area of areas) {
-      for (const id of area.originalNodes ?? area.nodes ?? []) {
-        if (String(id).startsWith("#") || claimed.has(id)) continue;
-        paths.add(id);
-      }
-    }
-    for (const path of paths) claimed.add(path);
-    if (paths.size === 0) continue;
-    const query = [...paths]
-      .map((path) => `path:"${String(path).replace(/"/g, '\\"')}"`)
-      .join(" OR ");
-    const colorValue = /^#[0-9a-f]{6}$/i.test(color)
-      ? color
-      : fallback;
-    const rgb = Number.parseInt(colorValue.slice(1), 16);
-    colorGroups.push({ query, color: { a: 1, rgb } });
-  }
+  const managedQueries = new Set(plugin.state.graphColorGroupQueries ?? []);
 
   try {
-    const options = graphPlugin.options;
-    const groups = Array.isArray(options.colorGroups)
-      ? options.colorGroups
-      : [];
-    const managedQueries = new Set(plugin.state.graphColorGroupQueries ?? []);
-    if (plugin.state.graphHighlightQuery)
-      managedQueries.add(plugin.state.graphHighlightQuery);
-    const previousColorGroups = options.colorGroups;
-    options.colorGroups = [
-      ...colorGroups,
-      ...groups.filter((group) => !managedQueries.has(group?.query)),
-    ];
-    try {
-      await graphPlugin.saveOptions();
-    } catch (error) {
-      options.colorGroups = previousColorGroups;
-      throw error;
-    }
-    plugin.state.graphColorGroupQueries = colorGroups.map((group) => group.query);
-    delete plugin.state.graphHighlightQuery;
-    await plugin.saveData(plugin.state);
-    if (colorGroups.length === 0) {
-      new Notice(t("notice.colorsCleared"));
-      return;
+    const colorGroups = combinedGraphColors(plugin.maint.result?.distanceAnalysis?.model, plugin.state);
+    if (managedQueries.size || colorGroups.length) {
+      const options = graphPlugin.options;
+      const groups = Array.isArray(options.colorGroups) ? options.colorGroups : [];
+      const remaining = [...colorGroups, ...groups.filter(group => !managedQueries.has(group?.query))];
+      if (colorGroups.length || remaining.length !== groups.length) {
+        options.colorGroups = remaining;
+        try {
+          await graphPlugin.saveOptions();
+        } catch (error) {
+          options.colorGroups = groups;
+          throw error;
+        }
+      }
+      plugin.state.graphColorGroupQueries = colorGroups.map(group => group.query);
+      await plugin.saveData(plugin.state);
     }
 
     // 先に表示先を確保する。グラフが唯一のタブだった場合、先に閉じると
@@ -112,13 +93,12 @@ async function openClusterInStandardGraph(plugin) {
       leaf = workspace.getLeaf(true);
     }
     await leaf.setViewState({ type: "graph", active: true });
-    new Notice(t("notice.graphOpened"));
   } catch (error) {
-    console.error("Topology Keeper: failed to open highlighted graph", error);
+    console.error("Topology Keeper: failed to open the standard graph", error);
     new Notice(
       t("notice.graphFailed"),
     );
   }
 }
 
-module.exports = openClusterInStandardGraph;
+module.exports = openStandardGraph;

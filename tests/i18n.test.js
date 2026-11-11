@@ -57,10 +57,11 @@ function settingsFixture(language) {
     setDesc(value) { descriptions.push(value); return this; }
     control(callback) {
       const control = { setValue(value) { values.push(value); return this; }, setPlaceholder() { return this; },
-        setButtonText() { return this; }, setWarning() { return this; },
+        addOption() { return this; }, setButtonText() { return this; }, setWarning() { return this; },
         onChange(callback) { this.change = callback; return this; }, onClick(callback) { this.click = callback; return this; } };
       controls.push(control); callback(control); return this;
     }
+    addDropdown(callback) { return this.control(callback); }
     addButton(callback) { return this.control(callback); }
     addText(callback) { return this.control(callback); }
     addTextArea(callback) { return this.control(callback); }
@@ -72,15 +73,16 @@ function settingsFixture(language) {
   const module = { exports: {} };
   vm.runInNewContext(fs.readFileSync(require.resolve('../src/settings-tab'), 'utf8'), {
     module, require: id => id === 'obsidian' ? { PluginSettingTab, Setting, Notice: class { constructor(text) { notices.push(text); } } }
-      : id === './i18n' ? { t: createTranslator(language) } : require('../src/plugin-settings'),
+      : id === './i18n' ? { t: createTranslator(language) } : require('../src/' + id.replace('./', '')),
   });
   const state = require('../src/plugin-settings').loadSettings({ orphanAllowedFolder: '未分類', tagStopWords: ['固有の語'],
     pendingImport: { mainNotePath: '資料/元ノート.md', paths: [] } });
-  const plugin = { state, saveData: async () => {}, scheduleMaint() {}, resetWindowPositions: async () => {},
+  let appearanceUpdates = 0;
+  const plugin = { state, applyWindowAppearance() { appearanceUpdates++; }, saveData: async () => {}, scheduleMaint() {}, resetWindowPositions: async () => {},
     importWorkflow: { recover: async () => {}, discardRecovery: async () => {} } };
   const tab = new module.exports({}, plugin, { CSS_CLASS: {} });
   tab.display();
-  return { names, descriptions, values, headings, controls, notices, plugin };
+  return { names, descriptions, values, headings, controls, notices, plugin, appearanceUpdates: () => appearanceUpdates };
 }
 
 test('settings render in either language while stored folders, words and keys remain unchanged', async () => {
@@ -91,10 +93,68 @@ test('settings render in either language while stored folders, words and keys re
   assert.ok(english.values.includes('未分類'));
   assert.ok(english.values.includes('固有の語'));
   assert.equal(english.names.some(name => /[\u3040-\u30ff\u4e00-\u9fff]/.test(name)), false);
-  await english.controls[0].click();
+  await english.controls.find(control => control.click).click();
   assert.ok(english.notices.includes('Window positions have been reset.'));
   const japanese = settingsFixture('ja');
   assert.ok(japanese.names.includes('孤立チェック対象外のフォルダ'));
   assert.ok(japanese.headings.includes('グラフ表示'));
   assert.equal(japanese.plugin.state.orphanAllowedFolder, '未分類');
+});
+
+test('common appearance controls apply immediately, survive reload and reset without moving saved windows', async () => {
+  const { loadSettings, resetUserSettings } = require('../src/plugin-settings');
+  const f = settingsFixture('ja');
+  await f.controls[0].change('120');
+  await f.controls[1].change('70');
+  await f.controls[2].change('480');
+  assert.equal(f.appearanceUpdates(), 3);
+  assert.deepEqual(f.plugin.state.windowAppearance, { fontScale: 120, maxHeightPercent: 70, widthPx: 480, minHeightPx: 280, minWidthPx: 280 });
+  const restored = loadSettings(JSON.parse(JSON.stringify({ ...f.plugin.state, pos: { x: 40, y: 80 } })));
+  assert.deepEqual(restored.windowAppearance, { fontScale: 120, maxHeightPercent: 70, widthPx: 480, minHeightPx: 280, minWidthPx: 280 });
+  resetUserSettings(restored);
+  assert.deepEqual(restored.windowAppearance, { fontScale: 100, maxHeightPercent: 0, widthPx: 0, minHeightPx: 280, minWidthPx: 280 });
+  assert.deepEqual(restored.pos, { x: 40, y: 80 });
+  assert.deepEqual(loadSettings({ windowAppearance: { fontScale: 'large', maxHeightPercent: null } }).windowAppearance,
+    { fontScale: 100, maxHeightPercent: 0, widthPx: 0, minHeightPx: 280, minWidthPx: 280 });
+  assert.deepEqual(loadSettings({ windowAppearance: { fontScale: 900, maxHeightPercent: -5 } }).windowAppearance,
+    { fontScale: 140, maxHeightPercent: 50, widthPx: 0, minHeightPx: 280, minWidthPx: 280 });
+});
+
+test('minimum height is independently saved, accepts no minimum and restores its default', async () => {
+  const { loadSettings, resetUserSettings } = require('../src/plugin-settings');
+  const f = settingsFixture('en');
+  assert.ok(f.names.includes('Minimum height'));
+  await f.controls[3].change('160');
+  assert.equal(f.plugin.state.windowAppearance.minHeightPx, 160);
+  assert.equal(f.plugin.state.windowAppearance.maxHeightPercent, 0);
+  const restored = loadSettings(JSON.parse(JSON.stringify(f.plugin.state)));
+  assert.equal(restored.windowAppearance.minHeightPx, 160);
+  await f.controls[3].change('0');
+  assert.equal(f.plugin.state.windowAppearance.minHeightPx, 0);
+  assert.equal(f.appearanceUpdates(), 2);
+  resetUserSettings(restored);
+  assert.equal(restored.windowAppearance.minHeightPx, 280);
+  assert.equal(loadSettings({ windowAppearance: { minHeightPx: -10 } }).windowAppearance.minHeightPx, 0);
+  assert.equal(loadSettings({ windowAppearance: { minHeightPx: 9999 } }).windowAppearance.minHeightPx, 640);
+});
+
+test('minimum width is independent from the saved window width and survives reload', async () => {
+  const { loadSettings, resetUserSettings } = require('../src/plugin-settings');
+  const f = settingsFixture('en');
+  assert.ok(f.names.includes('Minimum width'));
+  assert.ok(f.names.includes('Window width'));
+  await f.controls[2].change('480');
+  await f.controls[4].change('200');
+  assert.equal(f.plugin.state.windowAppearance.widthPx, 480);
+  assert.equal(f.plugin.state.windowAppearance.minWidthPx, 200);
+  const restored = loadSettings(JSON.parse(JSON.stringify(f.plugin.state)));
+  assert.equal(restored.windowAppearance.minWidthPx, 200);
+  assert.equal(restored.windowAppearance.widthPx, 480);
+  await f.controls[4].change('0');
+  assert.equal(f.plugin.state.windowAppearance.minWidthPx, 0);
+  assert.equal(f.plugin.state.windowAppearance.widthPx, 480);
+  resetUserSettings(restored);
+  assert.equal(restored.windowAppearance.minWidthPx, 280);
+  assert.equal(restored.windowAppearance.widthPx, 0);
+  assert.equal(loadSettings({ windowAppearance: { widthPx: 320 } }).windowAppearance.minWidthPx, 280);
 });

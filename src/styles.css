@@ -1,17 +1,17 @@
 /* 小窓 */
 .alp-win {
     position: fixed; top: 48px; right: 16px; z-index: 40;
-    width: 280px; height: auto; min-height: 0; max-height: 90vh; max-width: calc(100vw - 20px);
+    width: var(--pw-width, 280px); height: auto; min-height: 0; max-height: 90vh; max-width: calc(100vw - 20px);
     resize: none; overflow: hidden; box-sizing: border-box;
     background: var(--background-secondary);
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--radius-m); box-shadow: var(--shadow-s);
-    font-size: var(--font-ui-small);
+    font-size: calc(var(--font-ui-small) * var(--pw-font-scale, 1));
 }
 .alp-win.is-hidden { display: none; }
 .alp-win-head { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; cursor: move; user-select: none; }
 .alp-win-title { flex: 1; font-weight: var(--font-semibold); }
-.alp-win-body { max-height: calc(90vh - 42px); height: calc(100% - 34px); overflow-y: auto; padding: 2px 8px 8px; box-sizing: border-box; }
+.alp-win-body { max-height: calc(90vh - 42px); height: auto; overflow-y: auto; padding: 2px 8px 8px; box-sizing: border-box; }
 
 /* 欄 */
 .alp-sec-row { position: relative; display: block; border-top: 1px solid var(--background-modifier-border); }
@@ -22,16 +22,22 @@
 .alp-info-wrap { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; }
 .alp-info-button { padding: 0; min-height: 0; box-shadow: none; background: transparent; display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border: 1px solid var(--text-muted); border-radius: 50%; color: var(--text-muted); font-size: 11px; font-family: var(--font-interface); line-height: 1; font-weight: 600; cursor: help; }
 .alp-info-button:hover, .alp-info-button:focus { color: var(--text-normal); border-color: var(--text-normal); }
-.alp-info-popover { position: fixed; z-index: 11000; max-height: min(70vh, 520px); overflow-y: auto; padding: 10px 12px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); background: var(--background-primary); box-shadow: var(--shadow-l); color: var(--text-normal); font-size: var(--font-ui-small); font-weight: normal; white-space: pre-line; overflow-wrap: anywhere; line-height: 1.5; }
+.alp-info-popover { position: fixed; z-index: 11000; max-height: min(70vh, 520px); overflow-y: auto; padding: 10px 12px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); background: var(--background-primary); box-shadow: var(--shadow-l); color: var(--text-normal); font-size: calc(var(--font-ui-small) * var(--pw-font-scale, 1)); font-weight: normal; box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 .alp-info-popover[hidden] { display: none; }
+.alp-info-popover p, .alp-info-popover ul { margin: 0 0 0.75em; }
+.alp-info-popover ul { padding-inline-start: 1.4em; }
+.alp-info-popover li + li { margin-top: 0.45em; }
+.alp-info-popover h4 { margin: 0.9em 0 0.4em; font-size: inherit; }
+.alp-info-popover > :first-child { margin-top: 0; }
+.alp-info-popover > :last-child { margin-bottom: 0; }
 .alp-planar-overview { margin: 4px 0 8px; padding: 6px 8px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); }
 .alp-planar-category { padding: 5px 0; border-bottom: 1px solid var(--background-modifier-border); }
 .alp-planar-category:last-child { border-bottom: 0; }
-.alp-planar-category-head { font-size: var(--font-ui-small); font-weight: var(--font-medium); }
+.alp-planar-category-head { font-size: calc(var(--font-ui-small) * var(--pw-font-scale, 1)); font-weight: var(--font-medium); }
 .alp-planar-category.is-unknown .alp-planar-category-head { color: var(--text-warning); }
 .alp-wide { width: 100%; margin: 4px 0; }
 .alp-subtitle { margin-top: 6px; font-weight: var(--font-semibold); }
-.alp-small { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.alp-small { color: var(--text-muted); font-size: calc(var(--font-ui-smaller) * var(--pw-font-scale, 1)); }
 .alp-empty { color: var(--text-faint); padding: 4px; }
 
 /* 行 */
@@ -70,7 +76,7 @@
 }
 
 
-/* ホットスポットの専用グラフ：サイズ変更・移動可能な独立ウィンドウ */
+/* 部分グラフ：サイズ変更・移動可能な独立ウィンドウ */
 .alp-graph-panel {
     box-sizing: border-box;
     position: fixed;
@@ -90,9 +96,9 @@
 .alp-graph-head > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .alp-graph-controls { display: flex; gap: 5px; }
 .alp-graph-controls button { min-width: 34px; padding: 3px 8px; }
-.alp-graph-close { font-size: var(--font-ui-small); padding: 5px 12px; }
+.alp-graph-close { font-size: calc(var(--font-ui-small) * var(--pw-font-scale, 1)); padding: 5px 12px; }
 .alp-graph-help { display: flex; align-items: flex-start; gap: 8px; flex: 0 0 auto; }
-.alp-graph-help-button { padding: 1px 6px; font-size: var(--font-ui-smaller); }
+.alp-graph-help-button { padding: 1px 6px; font-size: calc(var(--font-ui-smaller) * var(--pw-font-scale, 1)); }
 .alp-graph-help-text { max-width: 640px; }
 .alp-graph-svg {
     display: block; flex: 1 1 auto; min-height: 0; width: 100%; height: 0;
@@ -102,6 +108,9 @@
 }
 .alp-graph-svg.is-panning { cursor: grabbing; }
 .alp-graph-edge { stroke: var(--text-faint); stroke-width: 1.5; opacity: .6; }
+.alp-graph-arrow { fill: var(--text-muted); stroke: none; }
+.alp-graph-arrow.is-selected { fill: var(--color-red); }
+.alp-graph-arrow.is-boundary { fill: var(--color-orange); }
 .alp-graph-edge.is-selected { stroke: var(--color-red); stroke-width: 2.5; opacity: .95; }
 .alp-graph-node { cursor: grab; }
 .alp-graph-node:active { cursor: grabbing; }
@@ -111,7 +120,7 @@
 .alp-graph-node circle { fill: var(--background-modifier-border); stroke: var(--text-muted); stroke-width: 1.7; }
 .alp-graph-node.is-selected circle { fill: var(--color-red); stroke: var(--color-red); }
 .alp-graph-node text { font-size: 18px; fill: var(--text-normal); paint-order: stroke; stroke: var(--background-primary-alt); stroke-width: 4px; stroke-linejoin: round; }
-.alp-graph-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 0; font-size: var(--font-ui-small); color: var(--text-muted); }
+.alp-graph-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 0; font-size: calc(var(--font-ui-small) * var(--pw-font-scale, 1)); color: var(--text-muted); }
 .alp-graph-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--background-modifier-border); border: 1px solid var(--text-muted); margin-left: 10px; }
 .alp-graph-dot.is-selected { background: var(--color-red); border-color: var(--color-red); }
 .alp-graph-edge.is-contracted { stroke-dasharray: 5 4; opacity: .95; }
@@ -144,7 +153,7 @@
     border-radius: 6px;
     background-color: color-mix(in srgb, var(--alp-area-color) 18%, var(--background-primary));
     color: var(--text-normal);
-    font-size: var(--font-ui-smaller);
+    font-size: calc(var(--font-ui-smaller) * var(--pw-font-scale, 1));
     white-space: nowrap;
     cursor: pointer;
 }
@@ -193,34 +202,31 @@ button.alp-tag-connection-button {
 .alp-graph-icon-button svg { width: 17px; height: 17px; }
 .alp-finding-nodes { overflow-wrap: anywhere; }
 
-/* 開閉セクション：三角マークを明示し、見出しが操作対象だと分かるようにする */
-.alp-sec > summary { list-style: none; display: flex; align-items: center; gap: 6px; }
 .alp-planar-graph-button { position: static; margin: 0; width: 24px; height: 20px; min-height: 0; }
 .alp-move-files-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 24px; height: 20px; min-height: 0; margin: 0; padding: 0; }
 .alp-move-files-button svg { width: 17px; height: 17px; }
 .alp-sec[data-section-key="planar"] > summary, .alp-sec[data-section-key="assets"] > summary { padding-right: 60px; }
 .alp-sec[data-section-key="planar"] > summary > .alp-info-wrap { position: static; flex: 0 0 auto; }
-.alp-sec > summary::-webkit-details-marker { display: none; }
-.alp-sec[open] > summary::before { content: "▾"; }
 .alp-sec > summary:hover::before { color: var(--text-normal); }
 
 /* 0.25.0 compact main window + separate structural detail window */
 .alp-win {
-    width: 280px;
+    display: flex; flex-direction: column;
+    width: var(--pw-width, 280px);
     height: auto;
-    max-height: 88vh;
+    max-height: var(--pw-max-height, 100vh);
     resize: none;
 }
-.alp-win-head { min-height: 28px; }
+.alp-win-head { min-height: 28px; flex: 0 0 auto; }
 .alp-win-mark { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; color: var(--text-muted); flex: 0 0 auto; }
 .alp-win-mark svg { width: 17px; height: 17px; }
-.alp-win-body { height: auto; max-height: calc(88vh - 34px); overflow-y: auto; padding: 5px 8px 8px; }
+.alp-win-body { flex: 1 1 auto; min-height: 0; height: auto; max-height: none; overflow-y: auto; padding: 5px 8px 8px; }
 .alp-indicators { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 1px 0 7px; }
 .alp-indicator { min-width: 0; height: auto; min-height: 36px; white-space: normal; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto 12px; grid-template-rows: auto; gap: 0 4px; align-items: center; padding: 6px 7px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); background: var(--background-primary); cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
 .alp-indicator-icon { grid-row: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
 .alp-indicator-icon svg { width: 17px; height: 17px; }
 .alp-indicator-value { grid-column: 3; grid-row: 1; font-size: 16px; line-height: 1.1; font-weight: var(--font-semibold); font-variant-numeric: tabular-nums; }
-.alp-indicator-label { grid-column: 2; grid-row: 1; min-width: 0; font-size: var(--font-ui-smaller); line-height: 1.25; color: var(--text-muted); white-space: normal; overflow-wrap: anywhere; }
+.alp-indicator-label { grid-column: 2; grid-row: 1; min-width: 0; font-size: calc(var(--font-ui-smaller) * var(--pw-font-scale, 1)); line-height: 1.25; color: var(--text-muted); white-space: normal; overflow-wrap: anywhere; }
 .alp-indicator-open-icon { grid-column: 4; grid-row: 1; display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); }
 .alp-indicator-open-icon svg { width: 12px; height: 12px; }
 .alp-indicator:hover { background: var(--background-modifier-hover); border-color: var(--interactive-accent); }
@@ -239,10 +245,7 @@ button.alp-tag-connection-button {
 .alp-action-button svg { width: 15px; height: 15px; }
 .alp-action-button:disabled { opacity: .45; }
 .alp-file-management { border-top: 1px solid var(--background-modifier-border); padding-top: 4px; }
-.alp-file-management > summary { display: flex; align-items: center; gap: 8px; padding: 6px 2px; cursor: pointer; font-weight: var(--font-medium); list-style: none; }
-.alp-file-management > summary::-webkit-details-marker { display: none; }
-.alp-file-management > summary::before { content: "▸"; display: inline-flex; flex: 0 0 18px; width: 18px; height: 18px; align-items: center; justify-content: center; margin-right: 1px; color: var(--text-muted); font-size: 20px; line-height: 1; }
-.alp-file-management[open] > summary::before { content: "▾"; }
+.alp-file-management > summary { padding: 6px 2px; cursor: pointer; font-weight: var(--font-medium); }
 .alp-file-management > summary:hover::before { color: var(--text-normal); }
 .alp-file-management-summary > span:first-child { display: inline-flex; }
 .alp-file-management-summary svg { width: 16px; height: 16px; }
@@ -251,11 +254,11 @@ button.alp-tag-connection-button {
 .alp-detail-win {
     position: fixed; left: 24px; top: 48px; z-index: 45;
     display: flex; flex-direction: column; gap: 0;
-    width: 300px; height: min(76vh, 720px);
-    min-width: 0; min-height: 0; max-width: calc(100vw - 12px); max-height: 92vh;
+    width: var(--pw-width, 280px); height: auto;
+    min-width: 0; min-height: 0; max-width: calc(100vw - 12px); max-height: var(--pw-max-height, 100vh);
     resize: none; overflow: hidden; box-sizing: border-box;
     background: var(--background-secondary); border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-m); box-shadow: var(--shadow-l); font-size: var(--font-ui-small);
+    border-radius: var(--radius-m); box-shadow: var(--shadow-l); font-size: calc(var(--font-ui-small) * var(--pw-font-scale, 1));
 }
 .alp-detail-win.is-hidden { display: none; }
 .alp-detail-head { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; padding: 5px 7px 5px 10px; cursor: move; user-select: none; border-bottom: 1px solid var(--background-modifier-border); }
@@ -266,8 +269,8 @@ button.alp-tag-connection-button {
 .alp-detail-body > .alp-sec-row { margin-top: 2px; }
 .alp-detail-body > .alp-sec-row:first-child { border-top: 0; }
 @media (max-width: 700px) {
-    .alp-win { width: min(280px, calc(100vw - 20px)); }
-    .alp-detail-win { width: min(300px, calc(100vw - 12px)); height: 80vh; min-width: 0; }
+    .alp-win { width: min(var(--pw-width, 280px), calc(100vw - 20px)); }
+    .alp-detail-win { width: min(var(--pw-width, 280px), calc(100vw - 12px)); height: auto; min-width: 0; }
 }
 .alp-indicator-orphan:not(.is-alert) .alp-indicator-icon,
 .alp-indicator-orphan:not(.is-alert) .alp-indicator-value { color: var(--color-green); }
@@ -281,27 +284,8 @@ button.alp-tag-connection-button {
 
 button.alp-indicator { width: 100%; height: auto; text-align: left; cursor: pointer; box-shadow: none; }
 button.alp-indicator:hover, button.alp-indicator[aria-expanded="true"] { background: var(--background-modifier-hover); }
-.alp-finding-details > summary { cursor: pointer; list-style: none; }
-.alp-finding-details > summary::before { content: "▸"; color: var(--text-muted); }
-.alp-finding-details[open] > summary::before { content: "▾"; }
-.alp-orphan-fold > summary { display: flex; align-items: center; gap: 6px; min-height: 28px; cursor: pointer; list-style: none; }
-.alp-orphan-fold > summary::-webkit-details-marker,
-.alp-finding-details > summary::-webkit-details-marker { display: none; }
-.alp-finding-details > summary::before,
-.alp-orphan-fold > summary::before {
-    content: "▸";
-    display: inline-flex;
-    flex: 0 0 var(--tk-disclosure-minor);
-    width: var(--tk-disclosure-minor);
-    height: var(--tk-disclosure-minor);
-    align-items: center;
-    justify-content: center;
-    margin-right: 0;
-    font-size: var(--tk-disclosure-minor);
-    line-height: 1;
-    color: var(--text-muted);
-}
-.alp-orphan-fold[open] > summary::before { content: "▾"; }
+.alp-finding-details > summary { cursor: pointer; }
+.alp-orphan-fold > summary { min-height: 28px; cursor: pointer; }
 .alp-finding-details > summary .alp-finding-title { flex: 1; }
 
 .tk-move-file-list { max-height: 40vh; overflow-y: auto; overflow-wrap: anywhere; }
@@ -341,7 +325,7 @@ button.alp-note-isolation-link:focus-visible { outline: 2px solid var(--interact
 .tk-file-hover-icon { display: inline-flex; }
 .tk-file-hover-icon svg { width: 16px; height: 16px; }
 .alp-row.is-editing { background: var(--background-modifier-hover); border-radius: var(--radius-s); outline: 1px solid var(--background-modifier-border-hover); }
-.tk-file-hover-title { max-width: 260px; padding: 5px 10px 7px; border-bottom: 1px solid var(--background-modifier-border); font-size: var(--font-ui-smaller); font-weight: var(--font-semibold); overflow-wrap: anywhere; }
+.tk-file-hover-title { max-width: 260px; padding: 5px 10px 7px; border-bottom: 1px solid var(--background-modifier-border); font-size: calc(var(--font-ui-smaller) * var(--pw-font-scale, 1)); font-weight: var(--font-semibold); overflow-wrap: anywhere; }
 .alp-win, .alp-detail-win, .alp-graph-panel {
     --tk-disclosure-major: 20px;
     --tk-disclosure-minor: 14px;
@@ -349,32 +333,10 @@ button.alp-note-isolation-link:focus-visible { outline: 2px solid var(--interact
     --tk-action-hit: 28px;
 }
 
-/* Shared disclosure types: major section, nested section, window action. */
+/* 見出しの高さと操作ボタンの大きさ。マーカーは下の共通規則で描く。 */
 .alp-sec > summary,
-.alp-file-management > summary { min-height: 32px; gap: 6px; }
-.alp-sec > summary::before,
-.alp-file-management > summary::before {
-    content: "▸";
-    display: inline-flex;
-    flex: 0 0 var(--tk-disclosure-major);
-    width: var(--tk-disclosure-major);
-    height: var(--tk-disclosure-major);
-    align-items: center;
-    justify-content: center;
-    margin-right: 0;
-    color: var(--text-muted);
-    font-size: var(--tk-disclosure-major);
-    line-height: 1;
-}
-.alp-sec[open] > summary::before,
-.alp-file-management[open] > summary::before { content: "▾"; }
+.alp-file-management > summary { min-height: 32px; }
 .alp-file-management .alp-sec > summary { min-height: 28px; }
-.alp-file-management .alp-sec > summary::before {
-    flex-basis: var(--tk-disclosure-minor);
-    width: var(--tk-disclosure-minor);
-    height: var(--tk-disclosure-minor);
-    font-size: var(--tk-disclosure-minor);
-}
 .alp-btn,
 .alp-graph-close,
 .alp-graph-icon-button,
@@ -415,7 +377,7 @@ button.alp-tag-connection-button { min-height: var(--tk-action-hit); }
     outline-offset: 1px;
 }
 
-/* Vector disclosure marks avoid glyph/font-weight differences between windows. */
+/* 開閉マーカーを共通の形と寸法で描く。WebKitの既定マーカーもここで隠す。 */
 :is(.alp-sec, .alp-file-management) > summary { --tk-disclosure-size: var(--tk-disclosure-major); }
 :is(.alp-finding-details, .alp-orphan-fold) > summary,
 .alp-file-management .alp-sec > summary { --tk-disclosure-size: var(--tk-disclosure-minor); }
@@ -442,6 +404,46 @@ button.alp-tag-connection-button { min-height: var(--tk-action-hit); }
     line-height: 0;
 }
 :is(.alp-sec, .alp-file-management, .alp-finding-details, .alp-orphan-fold)[open] > summary::before {
-    content: "";
     transform: rotate(90deg);
 }
+
+/* 内容に合わせて伸縮し、下限より上限を優先する（狭い画面でのはみ出しを防ぐ）。 */
+.alp-win { min-height: min(var(--pw-min-height, 280px), var(--pw-max-height, 100vh)); }
+.alp-detail-win { min-height: min(var(--pw-min-height, 280px), var(--pw-max-height, 100vh)); }
+.tk-web-thumbnail-preview { display: block; max-width: 100%; max-height: 55vh; object-fit: contain; margin: 12px auto; }
+.tk-web-thumbnail-url { overflow-wrap: anywhere; color: var(--text-muted); }
+.tk-web-thumbnail-input { display: block; width: 100%; margin: 4px 0 12px; }
+
+/* 横幅は設定値に固定する。開閉や表示内容の変化で外枠を伸縮させない。
+ * 画面が指定幅より狭いときだけ、画面内に収まる幅へ縮める。 */
+.alp-win, .alp-detail-win { width: var(--pw-width, 280px); }
+.alp-win {
+    min-width: min(var(--pw-min-width, 280px), var(--pw-width, 280px), calc(100vw - 20px));
+    max-width: min(var(--pw-width, 280px), calc(100vw - 20px));
+}
+.alp-detail-win {
+    min-width: min(var(--pw-min-width, 280px), var(--pw-width, 280px), calc(100vw - 12px));
+    max-width: min(var(--pw-width, 280px), calc(100vw - 12px));
+}
+
+/* サイドパネルは通常のフレックス項目として配置する。独立窓の座標は復帰時に使う。 */
+.tk-sidebar-host { display: flex; flex-direction: column; padding: 0; min-height: 0; height: 100%; isolation: isolate; }
+.tk-dock-pending { visibility: hidden; }
+.tk-sidebar-host > .tk-docked-window {
+    position: static;
+    flex: 1 1 0;
+    align-self: stretch;
+    width: auto;
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    resize: none;
+    z-index: auto;
+}
+.tk-docked-window :is(.alp-win-head, .alp-detail-head, .alp-graph-head) { cursor: default; }
+.tk-docked-window .alp-graph-head, .tk-docked-window .alp-graph-legend { flex-wrap: wrap; }

@@ -21,12 +21,19 @@ function frontmatterEndOffset(raw, cachedEnd) {
     return 0;
 }
 
-async function buildTagDoc(app, file, raw, compoundWhitelist) {
+function prepareTagSource(app, file, raw) {
     const cache = app.metadataCache.getFileCache(file);
     const start = frontmatterEndOffset(raw, cache?.frontmatterPosition?.end?.offset);
     // frontmatterとコードフェンスは特徴語の対象外。タグやメタデータ自身が
     // 類似度へ混入しないようにし、本文の先頭部分だけを解析する。
     const sourceText = raw.slice(start, start + TAG_SUGGEST.maxChars).replace(/```[\s\S]*?```/g, " ");
+    return { cache, sourceText };
+}
+
+async function buildTagDoc(app, file, raw, compoundWhitelist, prepared = prepareTagSource(app, file, raw)) {
+    // 複合語の抽出と文書の特徴化に同じ本文・メタデータを使う。
+    // 呼び出し単位の値を渡し、Vault変更後まで残るキャッシュにはしない。
+    const { cache, sourceText } = prepared;
     const structure = analyzeDocumentStructure(sourceText);
     // 見出し語は専用フィールドで重み付けするため本文から外す。
     // Obsidianリンクは表示名ではなくリンク先ノート名を特徴語にする。
@@ -68,4 +75,4 @@ async function buildTagDoc(app, file, raw, compoundWhitelist) {
     };
 }
 
-module.exports = { buildTagDoc, frontmatterEndOffset };
+module.exports = { buildTagDoc, frontmatterEndOffset, prepareTagSource };

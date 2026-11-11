@@ -16,7 +16,22 @@ function load(filename) {
   return module.exports;
 }
 const { computeTagSuggestions } = load(require.resolve('../src/tag-suggest'));
+const { prepareTagSource, buildTagDoc } = load(require.resolve('../src/tag-suggest-document'));
 const plain = value => JSON.parse(JSON.stringify(value));
+
+test('compound extraction and document features reuse one prepared body and metadata read', async () => {
+  let reads = 0;
+  const app = { metadataCache: { getFileCache() { reads++; return { tags: ['#topic'] }; } } };
+  const file = { path: 'sample.md' };
+  const raw = '---\ntags: [topic]\n---\nNetwork research\n```js\nignored()\n```';
+  const prepared = prepareTagSource(app, file, raw);
+  assert.equal(prepared.sourceText.includes('tags:'), false);
+  assert.equal(prepared.sourceText.includes('ignored'), false);
+  const doc = await buildTagDoc(app, file, raw, new Set(), prepared);
+  assert.equal(reads, 1);
+  assert.equal(doc.tags.has('topic'), true);
+  assert.deepEqual(plain(doc), plain(await buildTagDoc(app, file, raw, new Set())));
+});
 function fixture(cache = new TagSuggestionCache()) {
   const files = Array.from({ length: 12 }, (_, i) => ({ path: `n${i}.md`, stat: { mtime: 1, size: 100 } }));
   const bodies = new Map(files.map((file, i) => [file.path,

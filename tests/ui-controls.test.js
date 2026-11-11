@@ -17,6 +17,10 @@ class Element {
   createDiv(options) { return this.createEl('div', options); }
   createSpan(options) { return this.createEl('span', options); }
   appendChild(child) { child.parent = this; this.children.push(child); }
+  remove() {
+    if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this);
+    this.parent = null;
+  }
   setAttribute(key, value) { this.attributes[key] = String(value); }
   setAttr(key, value) { this.setAttribute(key, value); }
   setText(text) { this.textContent = text; }
@@ -43,6 +47,7 @@ function fixture(language = 'en') {
   }
   const modules = new Map();
   const document = new Element('document'); document.createElementNS = (ns, tag) => new Element(tag);
+  document.body = new Element('body');
   const window = Object.assign(new Element('window'), { innerWidth: 1200, innerHeight: 800 });
   function load(filename) {
     if (modules.has(filename)) return modules.get(filename).exports;
@@ -55,24 +60,48 @@ function fixture(language = 'en') {
     }, { filename });
     return module.exports;
   }
-  return { controls, notices, load: name => load(require.resolve('../src/' + name)) };
+  return { controls, notices, document, load: name => load(require.resolve('../src/' + name)) };
 }
 
 test('English partial graph controls and legend preserve original note labels', () => {
   const f = fixture();
   const { renderClusterGraph } = f.load('graph-view');
-  const parent = new Element('div');
-  const plugin = { state: {}, maint: { graphAdj: new Map([
+  const sidebar = new Element('div', { cls: 'tk-sidebar-host' });
+  f.document.body.appendChild(sidebar);
+  const parent = sidebar.createDiv();
+  parent.ownerDocument = f.document;
+  const plugin = { state: {}, app: { metadataCache: { resolvedLinks: {
+    '日本語.md': { 'other.md': 1 }, 'other.md': { '日本語.md': 1 },
+  } } }, maint: { graphAdj: new Map([
     ['日本語.md', new Set(['other.md'])], ['other.md', new Set(['日本語.md'])],
   ]) }, disposeGraphListeners() {}, saveData() {} };
   renderClusterGraph(plugin, parent, { nodes: ['日本語.md', 'other.md'], links: [], title: 'Area 1' });
-  const contents = text(parent);
+  assert.equal(parent.children.length, 0);
+  const panel = f.document.body.children.find(child => child.options.cls === 'alp-graph-panel');
+  assert.ok(panel);
+  const contents = text(panel);
   assert.ok(contents.includes('Fit'));
   assert.ok(contents.includes('ⓘ Controls'));
   assert.ok(contents.includes('Selected area'));
   assert.ok(contents.includes('日本語'));
   assert.equal(contents.includes('操作方法'), false);
+  const arrows = walk(panel).filter(node => node.tag === 'polygon' && node.attributes.class?.includes('alp-graph-arrow'));
+  assert.equal(arrows.length, 2);
+  for (const arrow of arrows) assert.match(arrow.attributes.points, /^[-\d.]+,[-\d.]+ /);
+  const arrowLayer = walk(panel).find(node => node.attributes.class === 'alp-graph-arrows');
+  const scene = walk(panel).find(node => node.children.includes(arrowLayer));
+  const nodeGroups = scene.children.filter(node => node.attributes.class?.includes('alp-graph-node'));
+  assert.equal(nodeGroups.length, 2);
+  for (const group of nodeGroups) assert.ok(scene.children.indexOf(arrowLayer) < scene.children.indexOf(group));
+  assert.equal(arrowLayer.attributes['pointer-events'], 'none');
+  const hitAreas = walk(panel).filter(node => node.attributes.class === 'alp-graph-node-hit');
+  assert.equal(hitAreas.length, 2);
+  for (const hit of hitAreas) {
+    assert.equal(hit.style.fill, 'transparent');
+    assert.equal(hit.style.stroke, 'none');
+  }
   plugin.maint.graphCleanup();
+  assert.deepEqual(f.document.body.children, [sidebar]);
 });
 
 test('English rename dialog submits the unchanged user filename', async () => {

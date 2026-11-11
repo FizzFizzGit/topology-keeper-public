@@ -1,5 +1,6 @@
 // 外部ファイル欄のデータ取得・リンク解決。UIやプラグインの状態管理には依存しない。
 const { filenameFromSource } = require("./source-url");
+const { resolvePropertyLink } = require('./note-metadata');
 
 // メインノートの frontmatter.links を1件ずつ解決し、「何を指しているか」で分類して返す。
 //
@@ -36,10 +37,7 @@ function collectExternalEntries({
   linksProperty,
 }) {
   return [].concat(frontmatter?.[linksProperty] ?? []).map((raw) => {
-    const match = /^\[\[([^\]|#]+)/.exec(String(raw).trim());
-    const target = match
-      ? app.metadataCache.getFirstLinkpathDest(match[1], file.path)
-      : null;
+    const target = resolvePropertyLink(app, file, raw);
 
     if (!target) return { raw, kind: "missing", label: String(raw) };
     if (target.extension === "base") {
@@ -81,9 +79,7 @@ function collectExternalEntries({
 //   利用先: 孤立判定（maintenance-check.js）、メタノート削除時の同時削除、リンク解除時の同時削除。
 function findMetaThumbnail({ app, file, thumbFolder, TFile }) {
   const cover = app.metadataCache.getFileCache(file)?.frontmatter?.cover;
-  const match = /^\[\[([^\]|#]+)/.exec(String(cover ?? "").trim());
-  if (!match) return null;
-  const target = app.metadataCache.getFirstLinkpathDest(match[1], file.path);
+  const target = resolvePropertyLink(app, file, cover);
   return target instanceof TFile && target.path.startsWith(`${thumbFolder}/`)
     ? target
     : null;

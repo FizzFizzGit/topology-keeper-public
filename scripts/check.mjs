@@ -10,11 +10,14 @@ if (!/^[a-z]+(?:-[a-z]+)*$/.test(manifest.id) || manifest.id.includes("obsidian"
   throw new Error("Invalid public plugin ID");
 if (versions[manifest.version] !== manifest.minAppVersion) throw new Error("versions.json must match manifest");
 if (manifest.description.length > 250 || !manifest.description.endsWith(".")) throw new Error("Invalid plugin description");
-for (const directory of ["src", "tests", "scripts"]) {
-  for (const file of readdirSync(directory)) {
-    if (/\.[cm]?js$/.test(file)) execFileSync(process.execPath, ["--check", `${directory}/${file}`], { stdio: "inherit" });
+function checkDirectory(directory) {
+  for (const file of readdirSync(directory, { withFileTypes: true })) {
+    const filename = `${directory}/${file.name}`;
+    if (file.isDirectory()) checkDirectory(filename);
+    else if (/\.[cm]?js$/.test(file.name)) execFileSync(process.execPath, ["--check", filename], { stdio: "inherit" });
   }
 }
+for (const directory of ["src", "tests", "scripts", "examples"]) checkDirectory(directory);
 for (const file of readdirSync(".")) {
   if (file.endsWith(".mjs")) execFileSync(process.execPath, ["--check", file], { stdio: "inherit" });
 }

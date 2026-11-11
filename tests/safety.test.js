@@ -3,25 +3,41 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const vm = require('node:vm');
-const { createRequire } = require('node:module');
 const { toSourceUrl, pathFromSource } = require('../src/source-url');
 const { CONFIG, loadSettings } = require('../src/plugin-settings');
 const { readImageFile } = require('../src/image-file');
 
-function load(name, overrides = {}, globals = {}) {
-  const filename = require.resolve('../src/' + name);
-  const nativeRequire = createRequire(filename);
-  const context = { module: { exports: {} }, console, URL, ...globals,
-    require: id => Object.hasOwn(overrides, id) ? overrides[id] : id === './i18n' ? { t: require('../src/i18n-core').createTranslator('ja') } : nativeRequire(id) };
-  vm.runInNewContext(fs.readFileSync(filename, 'utf8'), context, { filename });
-  return context.module.exports;
-}
+const { loadSource: load } = require('./helpers/load-source');
 class TFile {
   constructor(name) { this.path = name; this.name = path.basename(name); this.extension = name.split('.').pop(); this.basename = this.name.replace(/\.[^.]+$/, ''); }
 }
 const notices = [];
 const obsidian = { TFile, Notice: class { constructor(message) { notices.push(message); } } };
+
+test('new imports save each recovery target once through the normal import workflow', async () => {
+  const snapshots = [];
+  const Import = load('import-workflow', {
+    obsidian,
+    './base-modal': { BaseNameModal: class { async waitForValue() { return 'Files'; } } },
+    electron: { remote: { dialog: { showOpenDialog: async () => ({
+      canceled: false, filePaths: [path.resolve('external-document.pdf')],
+    }) } } },
+  });
+  const plugin = { state: { folders: { meta: '_meta', thumb: '_thumbs', base: '_bases' } },
+    saveData: async state => snapshots.push(JSON.parse(JSON.stringify(state.pendingImport ?? null))),
+    refreshBaseLabels() {},
+    app: { vault: { adapter: { basePath: path.resolve('separate-vault') },
+      create: async filename => new TFile(filename) },
+      fileManager: { processFrontMatter: async (_file, update) => update({}) } },
+    baseManager: { getLinkedBaseNames: async () => new Set(), ensureFolders: async () => {},
+      scanVault: () => new Map(), createGroupBase: async () => new TFile('_bases/group.base'),
+      appendLinks: async () => 2 },
+  };
+  await new Import(plugin, { isImage: () => false }).run(new TFile('main.md'));
+  assert.equal(snapshots.length, 4); // 開始、Base、メタノート、完了。
+  assert.equal(snapshots[2].paths.length, 2);
+  assert.equal(snapshots[3], null);
+});
 
 test('file URLs round-trip spaces, Unicode, percent signs and punctuation', () => {
   const filename = path.resolve('日本語 % # ? (画像).png');
@@ -71,7 +87,7 @@ function deletionFixture() {
   const other = new TFile('other.md');
   const thumb = new TFile('_thumbs/12345678-1234-4123-8123-123456789abc.webp');
   const files = [meta, other, thumb];
-  const caches = new Map([[meta.path, { frontmatter: { topologyKeeper: true } }], [other.path, {}]]);
+  const caches = new Map([[meta.path, {}], [other.path, {}]]);
   const covers = new Map([[meta.path, thumb]]);
   const resolvedLinks = {};
   const removed = [];
@@ -88,6 +104,7 @@ function deletionFixture() {
     computeOrphans: () => computeOrphans(app, {
       CONFIG, FOLDERS: { meta: '_meta', thumb: '_thumbs' }, getAllTags: cache => cache.tags ?? [],
       inFolder: (file, folder) => file.path.startsWith(folder + '/'), getThumbnailForMeta, listBases: () => [],
+      webThumbnailFiles: plugin.state.webThumbnailFiles,
     }),
     maintenance: { run() {} }, metaLabel: file => file.path,
   };
@@ -134,10 +151,63 @@ test('private thumbnails are removed along with orphan metadata', async () => {
   assert.equal(await actions.trashMeta(f.plugin, f.meta), true);
   assert.deepEqual(f.removed, [f.meta.path, f.thumb.path]);
 });
-test('ordinary files inside management folders are not deletion candidates', () => {
+test('meta folder membership identifies metadata notes without a marker property', () => {
   const f = deletionFixture();
   f.caches.set(f.meta.path, {});
-  assert.equal(f.plugin.computeOrphans().orphans.length, 0);
+  assert.deepEqual(f.plugin.computeOrphans().orphans.map(file => file.path), [f.meta.path]);
+});
+
+test('unlinked web thumbnails are detected while ordinary PNGs and thumbnails outside management folders are excluded', () => {
+  const f = deletionFixture();
+  const web = new TFile('_thumbs/12345678-1234-4123-8123-123456789abc.png');
+  const ordinary = new TFile('_thumbs/manual.png');
+  const outside = new TFile('Images/12345678-1234-4123-8123-123456789abc.png');
+  f.plugin.app.vault.getFiles().push(web, ordinary, outside);
+  f.plugin.state.webThumbnailFiles = { [web.path]: 256 };
+  assert.deepEqual(f.plugin.computeOrphans().strayThumbs.map(file => file.path), [web.path]);
+  f.resolvedLinks[f.other.path] = { [web.path]: 1 };
+  assert.equal(f.plugin.computeOrphans().strayThumbs.length, 0);
+  delete f.resolvedLinks[f.other.path];
+  f.caches.set(f.other.path, { embeds: [{ link: web.path }] });
+  assert.equal(f.plugin.computeOrphans().strayThumbs.length, 0);
+  f.caches.set(f.other.path, {});
+  assert.equal(f.plugin.computeOrphans().strayThumbs.length, 1);
+});
+
+test('web thumbnail cleanup rechecks embedded references after confirmation and pauses during capture', async () => {
+  const f = deletionFixture();
+  const web = new TFile('_thumbs/12345678-1234-4123-8123-123456789abc.png');
+  f.plugin.app.vault.getFiles().push(web);
+  f.plugin.state.webThumbnailFiles = { [web.path]: 256 };
+  const actions = load('maintenance-actions', { obsidian }, { confirm: () => {
+    f.caches.set(f.other.path, { embeds: [{ link: web.path }] });
+    return true;
+  } });
+  await actions.trashOrphans(f.plugin);
+  assert.equal(f.removed.includes(web.path), false);
+  f.caches.set(f.other.path, {});
+  f.plugin.webThumbnails = { controller: {} };
+  await actions.trashOrphans(f.plugin);
+  assert.equal(f.removed.includes(web.path), false);
+  f.plugin.webThumbnails.controller = null;
+  const confirmed = load('maintenance-actions', { obsidian }, { confirm: () => true });
+  await confirmed.trashOrphans(f.plugin);
+  assert.equal(f.removed.includes(web.path), true);
+});
+
+test('UUID-only PNG cleanup requires a generation record and preserves filename-only embeds', () => {
+  const f = deletionFixture();
+  const generated = new TFile('_thumbs/12345678-1234-4123-8123-123456789abc.png');
+  const unrelated = new TFile('_thumbs/12345678-1234-4123-8123-123456789abd.png');
+  f.plugin.app.vault.getFiles().push(generated, unrelated);
+  assert.equal(f.plugin.computeOrphans().strayThumbs.length, 0);
+  f.plugin.state.webThumbnailFiles = { [generated.path]: 128 };
+  assert.deepEqual(f.plugin.computeOrphans().strayThumbs.map(file => file.path), [generated.path]);
+  f.plugin.app.metadataCache.getFirstLinkpathDest = name => f.plugin.app.vault.getFiles().find(file => file.path === name || file.name === name);
+  f.caches.set(f.other.path, { embeds: [{ link: generated.name }] });
+  assert.equal(f.plugin.computeOrphans().strayThumbs.length, 0);
+  f.caches.set(f.other.path, {});
+  assert.deepEqual(f.plugin.computeOrphans().strayThumbs.map(file => file.path), [generated.path]);
 });
 
 test('image cache evicts oldest entries to enforce its byte limit', async () => {
@@ -263,7 +333,7 @@ test('import recovery keeps journal on failure and clears it only after successf
   let failSave = false;
   const pending = { mainNotePath: main.path, paths: [asset.path, '_meta/missing.md'] };
   const plugin = {
-    state: { pendingImport: pending },
+    state: { pendingImport: pending, folders: { meta: '_meta', thumb: '_thumbs', base: '_bases' } },
     app: { vault: { getAbstractFileByPath: name => [main, asset].find(f => f.path === name) } },
     baseManager: { appendLinks: async (note, names) => { assert.equal(note, main); assert.equal(names.length, 1); if (fail) throw new Error('write failed'); } },
     saveData: async () => { if (failSave) throw new Error('save failed'); }, refreshBaseLabels() {}, scheduleMaint() {},

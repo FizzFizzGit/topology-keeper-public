@@ -1,5 +1,6 @@
 const { TFile } = require("obsidian");
 const { randomUUID } = require("crypto");
+const { propertyLinkTargets } = require('./note-metadata');
 
 const yamlSingleQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
 
@@ -172,11 +173,8 @@ class BaseManager {
   //   Base が読めなかったときは警告を出して、その Base だけ飛ばす。
   async getLinkedBaseNames(mainNote) {
     const names = new Set();
-    const frontmatter = this.app.metadataCache.getFileCache(mainNote)?.frontmatter;
-    for (const raw of [].concat(frontmatter?.[this.CONFIG.properties.links] ?? [])) {
-      const match = /^\[\[([^\]|#]+)/.exec(String(raw).trim());
-      if (!match) continue;
-      const target = this.app.metadataCache.getFirstLinkpathDest(match[1], mainNote.path);
+    const cache = this.app.metadataCache.getFileCache(mainNote);
+    for (const target of propertyLinkTargets(this.app, mainNote, cache, this.CONFIG.properties.links)) {
       if (!(target instanceof TFile) || target.extension !== "base") continue;
       try {
         const viewName = firstViewName(await this.app.vault.cachedRead(target));

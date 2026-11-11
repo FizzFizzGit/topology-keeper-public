@@ -1,7 +1,6 @@
 const { t } = require('./i18n');
 const { Notice, getAllTags } = require("obsidian");
 const { BaseNameModal, BaseTagModal } = require("./base-modal");
-const { FOLDERS } = require("./plugin-settings");
 const { inFolder } = require("./file-utils");
 
 // 利用者の入力を伴うBase作成フローを管理する。
@@ -24,7 +23,7 @@ class BaseWorkflow {
 
       const available = new Set();
       for (const file of plugin.app.vault.getMarkdownFiles()) {
-        if (!inFolder(file, FOLDERS.meta)) continue;
+        if (!inFolder(file, plugin.state.folders.meta)) continue;
         const cache = plugin.app.metadataCache.getFileCache(file);
         for (const tag of getAllTags(cache) ?? [])
           available.add(tag.replace(/^#/, ""));

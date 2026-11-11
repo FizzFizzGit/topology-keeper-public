@@ -1,17 +1,15 @@
 // グラフ構築と平面性の診断処理。UIやプラグイン状態には依存させない。
+const { readNoteMetadata } = require('./note-metadata');
+const { checkSmallPlanarity } = require('./small-planarity');
+const { checkLeftRightPlanarity } = require('./left-right-planarity');
 // 既存アルゴリズムをそのまま切り出し、設定やObsidian APIは引数で受け取る。
 
-const HOTSPOT_DENSITY_THRESHOLD = 0.25;
-const HOTSPOT_MIN_NODES = 3;
-const REMAINDER_LABELS = {
-  low: '低密度・平面性未判定',
-  small: '小規模・平面性未判定',
-  boundary: '境界部分・平面性未判定',
-};
+const DENSE_LINK_THRESHOLD = 0.25;
+const MIN_AREA_NODES = 3;
 function getRemainderKind(area) {
-  if (area.nodes.length < HOTSPOT_MIN_NODES) return 'small';
+  if (area.nodes.length < MIN_AREA_NODES) return 'small';
   const density = area.linkDensity ?? (2 * (area.edges ?? area.links?.length ?? 0) / (area.nodes.length * (area.nodes.length - 1)));
-  return density < HOTSPOT_DENSITY_THRESHOLD ? 'low' : 'boundary';
+  return density < DENSE_LINK_THRESHOLD ? 'low' : 'boundary';
 }
 
 // ノートとタグの無向グラフを作る。頂点はノートのパス、またはタグ（"#タグ" 形式の文字列）。
@@ -40,21 +38,16 @@ function buildAdjacency(app, { isManaged, isManagedPath, getAllTags }) {
     adj.get(v).add(u);
   };
   const resolved = app.metadataCache.resolvedLinks;
-  const markdownPaths = new Set(
-    app.vault
-      .getMarkdownFiles()
-      .filter((f) => !isManaged(f))
-      .map((f) => f.path),
-  );
+  const { files, caches } = readNoteMetadata(app, file => !isManaged(file));
+  const markdownPaths = new Set(files.map(file => file.path));
 
-  for (const file of app.vault.getMarkdownFiles()) {
-    if (isManaged(file)) continue;
+  for (const file of files) {
     for (const dest of Object.keys(resolved[file.path] ?? {})) {
       // グラフはノートとタグを対象にする。画像・BaseなどのVault内ファイルは頂点にしない。
       if (markdownPaths.has(dest) && !isManagedPath(dest))
         addEdge(file.path, dest);
     }
-    const cache = app.metadataCache.getFileCache(file);
+    const cache = caches.get(file.path);
     for (const tag of (cache ? getAllTags(cache) : null) ?? []) {
       addEdge(file.path, tag);
     }
@@ -281,6 +274,95 @@ function inducedAdjacency(graph, nodes) {
   return out;
 }
 
+// 横断タグを経由しない範囲を、縮約で経路が混ざる前に調べる。
+// 既存の重み判定を使い、同じ連結成分に独立した閉路が二つ以上残る場合だけ分ける。
+async function* areaAnalysisGraphs(adjacency, tagWeights, tick) {
+  const crossCutting = new Set([...(tagWeights ?? [])]
+    .filter(([node, weight]) => node.startsWith('#') && weight < 1)
+    .map(([tag]) => tag));
+  if (!crossCutting.size) {
+    yield adjacency;
+    return;
+  }
+
+  let work = 0;
+  async function takeComponent(start, remaining) {
+    const nodes = [start];
+    remaining.delete(start);
+    for (const node of nodes) {
+      for (const other of adjacency.get(node)) {
+        if (++work % 200 === 0) await tick();
+        if (remaining.delete(other)) nodes.push(other);
+      }
+    }
+    return nodes;
+  }
+
+  const remaining = new Set(adjacency.keys());
+  const unchanged = new Set();
+  while (remaining.size) {
+    await tick();
+    const nodes = await takeComponent(remaining.values().next().value, remaining);
+    const local = new Set(nodes.filter(node => !crossCutting.has(node)));
+    const blocks = local.size < nodes.length
+      ? await findBiconnectedComponents(inducedAdjacency(adjacency, local), tick) : [];
+    // 閉路を持つブロックを使うので、同じ日記が二つの話題に触れても
+    // その一ノートを共有するだけなら、両側を同じ範囲にしない。
+    const supported = blocks.filter(block =>
+      block.size >= 3 && [...block].filter(node => !node.startsWith('#')).length >= 2);
+    if (supported.length < 2) {
+      for (const node of nodes) unchanged.add(node);
+      continue;
+    }
+
+    const tagConnections = new Map();
+    const tagsByBlock = new Map();
+    for (const block of supported) {
+      const tags = new Map();
+      tagsByBlock.set(block, tags);
+      for (const node of block) {
+        for (const tag of adjacency.get(node)) {
+          if (++work % 200 === 0) await tick();
+          if (!crossCutting.has(tag)) continue;
+          if (!tags.has(tag)) tags.set(tag, new Set());
+          tags.get(tag).add(node);
+          if (!tagConnections.has(tag)) tagConnections.set(tag, { blocks: new Set(), notes: new Set() });
+          const connection = tagConnections.get(tag);
+          connection.blocks.add(block);
+          connection.notes.add(node);
+        }
+      }
+    }
+    // 横断タグが同じ一ノートだけで共有される場合は、分割の根拠にしない。
+    const separated = new Set();
+    for (const { blocks, notes } of tagConnections.values()) {
+      if (blocks.size > 1 && notes.size > 1) for (const block of blocks) separated.add(block);
+    }
+    if (!separated.size) {
+      for (const node of nodes) unchanged.add(node);
+      continue;
+    }
+
+    // 範囲内のタグ辺を戻す。広いタグの全付与先をブロックごとに走査しない。
+    const residual = new Set(nodes);
+    for (const block of separated) {
+      const graph = inducedAdjacency(adjacency, block);
+      for (const node of block) residual.delete(node);
+      for (const [tag, notes] of tagsByBlock.get(block)) {
+        graph.set(tag, notes);
+        for (const note of notes) graph.get(note).add(tag);
+      }
+      yield graph;
+    }
+    // 独立した閉路を持たないノートも残りのグラフとして分析する。
+    if (residual.size) yield inducedAdjacency(adjacency, residual);
+  }
+  if (unchanged.size === adjacency.size) yield adjacency;
+  else if (unchanged.size) {
+    yield inducedAdjacency(adjacency, new Set([...adjacency.keys()].filter(node => unchanged.has(node))));
+  }
+}
+
 // 入力の2連結成分を、内部リンクの集中度（モジュラリティ）が増すまとまりへ分割する。
 // 重み付き縮約を反復し、同じ密度の領域間も分離する。元の頂点集合を返し、入力は変更しない。
 async function splitStructuralAreas(graph, tick, tagWeights = null, edgeWeights = null, boundaryRatio = 1) {
@@ -397,107 +479,9 @@ async function splitTagIndependentAreas(graph, original, witnesses, tick) {
   return groups;
 }
 
-// 平面性未確定の成分を、近傍密度の変化から分割してホットスポットを返す。
-//
-// 【入力】単純無向グラフの隣接表と、その2連結成分に属する頂点ID一覧。
-// 【処理】各頂点と1近傍の誘導部分グラフ密度を計算し、隣接頂点間の密度差の成分内平均を超える辺を除いて連結領域に分割する。
-// 【出力】{ areas, boundaryEdges, meanChange }。areasは閾値以上の領域、boundaryEdgesは除いた境界候補辺、
-//         meanChangeは密度差の平均。入力グラフは変更しない。
-async function findDensityHotspots(graph, nodes, threshold, tick) {
-  const localDensity = new Map();
-  let work = 0;
-  for (const u of nodes) {
-    await tick();
-    const neighborhood = new Set([u, ...(graph.get(u) ?? [])]);
-    const count = neighborhood.size;
-    const possibleEdges = (count * (count - 1)) / 2;
-    if (!possibleEdges) {
-      localDensity.set(u, 0);
-      continue;
-    }
-    let edges = 0;
-    for (const a of neighborhood) {
-      if (++work % 200 === 0) await tick();
-      for (const b of graph.get(a) ?? []) {
-        if (a < b && neighborhood.has(b)) edges++;
-      }
-    }
-    localDensity.set(u, edges / possibleEdges);
-  }
-
-  const edgeChanges = [];
-  let totalChange = 0;
-  let edgeCount = 0;
-  for (const u of nodes) {
-    for (const v of graph.get(u) ?? []) {
-      if (++work % 200 === 0) await tick();
-      if (u >= v) continue;
-      const change = Math.abs(localDensity.get(u) - localDensity.get(v));
-      edgeChanges.push({ a: u, b: v, change });
-      totalChange += change;
-      edgeCount++;
-    }
-  }
-  const meanChange = edgeCount ? totalChange / edgeCount : 0;
-  const boundaryEdges = edgeChanges.filter(
-    (edge) => meanChange > 0 && edge.change > meanChange,
-  );
-  const boundaryKeys = new Set(
-    boundaryEdges.map((edge) => `${edge.a}\0${edge.b}`),
-  );
-
-  const remaining = new Set(nodes);
-  const areas = [];
-  while (remaining.size) {
-    await tick();
-    const first = remaining.values().next().value;
-    remaining.delete(first);
-    const area = new Set([first]);
-    const queue = [first];
-    for (let head = 0; head < queue.length; head++) {
-      const u = queue[head];
-      for (const v of graph.get(u) ?? []) {
-        if (++work % 200 === 0) await tick();
-        const key = u < v ? `${u}\0${v}` : `${v}\0${u}`;
-        if (!remaining.has(v) || boundaryKeys.has(key)) continue;
-        remaining.delete(v);
-        area.add(v);
-        queue.push(v);
-      }
-    }
-
-    const links = [];
-    for (const u of area) {
-      for (const v of graph.get(u) ?? []) {
-        if (u < v && area.has(v)) {
-          const key = `${u}\0${v}`;
-          if (!boundaryKeys.has(key)) links.push([u, v]);
-        }
-      }
-    }
-    const possibleEdges = (area.size * (area.size - 1)) / 2;
-    const density = possibleEdges ? links.length / possibleEdges : 0;
-    if (area.size < HOTSPOT_MIN_NODES || density < threshold) continue;
-    areas.push({
-      nodes: [...area],
-      links,
-      density,
-      meanLocalDensity:
-        area.size > 0
-          ? [...area].reduce((sum, u) => sum + localDensity.get(u), 0) /
-            area.size
-          : 0,
-      boundaryLinks: boundaryEdges.map(({ a, b }) => [a, b]),
-    });
-  }
-  return { areas, boundaryEdges, meanChange };
-}
-
-// Hotspots and the remainder partition the original vertices of an undetermined
-// finding. Boundary paths omitted by density splitting belong to the remainder.
-async function undeterminedRemainder(adjacency, finding, hotspots, tick) {
-  const covered = new Set(hotspots.flatMap(area => area.originalNodes ?? area.nodes));
-  const remaining = new Set((finding.originalNodes ?? finding.nodes).filter(node => !covered.has(node)));
+// 未判定領域は縮約前の頂点と辺で表示する。
+async function undeterminedRemainder(adjacency, finding, tick) {
+  const remaining = new Set(finding.originalNodes ?? finding.nodes);
   const areas = [];
   let work = 0;
   while (remaining.size) {
@@ -526,6 +510,72 @@ async function undeterminedRemainder(adjacency, finding, hotspots, tick) {
   return areas;
 }
 
+// 範囲ごとに縮約する。同じ横断タグが複数の範囲に現れても、縮約辺の来歴は範囲ごとに保持する。
+async function* planarityCandidates(adjacency, tagWeights, tick) {
+  for await (const adj of areaAnalysisGraphs(adjacency, tagWeights, tick)) {
+    const { graph: reduced, witnesses } = await reduceGraph(adj, tick);
+    const edgeWeights = new Map();
+    if (tagWeights) {
+      let work = 0;
+      for (const [key, nodes] of witnesses) {
+        let weight = 1;
+        for (const node of nodes) {
+          if (++work % 200 === 0) await tick();
+          weight = Math.min(weight, tagWeights.get(node) ?? 1);
+        }
+        edgeWeights.set(key, weight);
+      }
+    }
+    const expand = item => {
+      const originals = new Set(item.nodes);
+      for (const [a, b] of item.links) {
+        for (const node of witnesses.get(JSON.stringify([a, b].sort())) ?? []) originals.add(node);
+      }
+      item.originalNodes = [...originals].sort();
+      return item;
+    };
+    for (const block of await findBiconnectedComponents(reduced, tick)) {
+      const graph = inducedAdjacency(reduced, block);
+      const groups = await splitTagIndependentAreas(graph, adj, witnesses, tick)
+        ?? await splitStructuralAreas(graph, tick, tagWeights, edgeWeights);
+      // 分割でできた橋や関節点も再評価し、独立した領域として扱う。
+      for (const group of groups) {
+        const subgraph = inducedAdjacency(graph, group);
+        for (const nodes of await findBiconnectedComponents(subgraph, tick)) {
+          yield { graph: inducedAdjacency(reduced, nodes), expand, adj };
+        }
+      }
+    }
+  }
+}
+
+// 距離で決めた範囲の診断。境界は動かさず、縮約後の2連結成分で既存の検出器を使う。
+// 密度は表示される元のノートとタグ、実際の辺から求める。
+async function diagnoseAreaPlanarity(adjacency, tick) {
+  const size = adjacency.size;
+  const degrees = [...adjacency.values()].reduce((total, neighbors) => total + neighbors.size, 0);
+  const linkDensity = size > 1 ? degrees / (size * (size - 1)) : 0;
+  const { graph } = await reduceGraph(adjacency, tick);
+  for (const block of await findBiconnectedComponents(graph, tick)) {
+    const local = inducedAdjacency(graph, block);
+    const nodes = [...local.keys()];
+    const edges = [...local.values()].reduce((sum, neighbors) => sum + neighbors.size, 0) / 2;
+    const degree4 = nodes.filter(node => local.get(node).size >= 4).length;
+    const degree3 = nodes.filter(node => local.get(node).size >= 3).length;
+    if (nodes.length >= 3 && edges > 3 * nodes.length - 6) return { classification: 'nonplanar', linkDensity };
+    if (degree4 < 5 && degree3 < 6) continue;
+    const index = new Map(nodes.map((node, i) => [node, i]));
+    if ((degree4 >= 5 && (await findK5(local, nodes, index, 1, tick)).found.length)
+        || (degree3 >= 6 && (await findK33(local, nodes, 1, tick)).found.length)) {
+      return { classification: 'nonplanar', linkDensity };
+    }
+    const small = await checkSmallPlanarity(local, tick);
+    const exact = small === 'undetermined' ? await checkLeftRightPlanarity(local, tick) : small;
+    if (exact === 'nonplanar') return { classification: exact, linkDensity };
+  }
+  return { classification: 'planar', linkDensity };
+}
+
 // グラフを平面性の観点で分析し、平面性と密度によるエリア候補を返す。
 //
 // 【入力】
@@ -540,8 +590,6 @@ async function undeterminedRemainder(adjacency, finding, hotspots, tick) {
 //               現時点では、この値を読んでいる箇所は他に無い（k5 / k33 / definite などが画面に使われている）。
 //   definite  : 非平面と確定した領域。 suspect: 次数条件を超え、平面性を確定できない領域。
 //   safe      : 次数の十分条件から平面と判定した領域。
-//   hotspots  : suspect領域を近傍密度の差で分割し、densityThreshold以上かつ3頂点以上になったエリア。
-//   boundaryEdges / meanDensityChange: suspect領域内で平均変化度を超えた境界候補辺と、辺密度変化の平均。
 //   truncated : 上限（maxFindings）で検出を打ち切ったか。
 //   definite / suspect / safe の各要素（内部リンクの集中度で分割後の2連結成分）:
 //     { nodes: 頂点IDの配列, edges: 辺の数, links: [[u, v], ...]（u < v の辺の一覧）,
@@ -555,39 +603,6 @@ async function undeterminedRemainder(adjacency, finding, hotspots, tick) {
 //   各領域の originalNodes は、その領域内の縮約辺が表す元の頂点も含む。
 //   次数0/1として取り除かれた枝は領域に含めず、境界を越えて所属を推測しない。
 async function findNonPlanar(adj, tick, maxFindings = 200, { tagWeights = null } = {}) {
-  const { graph: reduced, witnesses } = await reduceGraph(adj, tick);
-  const edgeWeights = new Map();
-  if (tagWeights) {
-    let work = 0;
-    for (const [key, nodes] of witnesses) {
-      let weight = 1;
-      for (const node of nodes) {
-        if (++work % 200 === 0) await tick();
-        weight = Math.min(weight, tagWeights.get(node) ?? 1);
-      }
-      edgeWeights.set(key, weight);
-    }
-  }
-  const expand = item => {
-    const originals = new Set(item.nodes);
-    for (const [a, b] of item.links) {
-      for (const node of witnesses.get(JSON.stringify([a, b].sort())) ?? []) originals.add(node);
-    }
-    item.originalNodes = [...originals].sort();
-    return item;
-  };
-  const blocks = await findBiconnectedComponents(reduced, tick);
-  const areas = [];
-  for (const block of blocks) {
-    const graph = inducedAdjacency(reduced, block);
-    const groups = await splitTagIndependentAreas(graph, adj, witnesses, tick)
-      ?? await splitStructuralAreas(graph, tick, tagWeights, edgeWeights);
-    // 分割でできた橋や関節点も再評価し、独立した領域として扱う。
-    for (const group of groups) {
-      const subgraph = inducedAdjacency(graph, group);
-      areas.push(...await findBiconnectedComponents(subgraph, tick));
-    }
-  }
   const result = {
     k5: [],
     k33: [],
@@ -595,16 +610,12 @@ async function findNonPlanar(adj, tick, maxFindings = 200, { tagWeights = null }
     definite: [],
     suspect: [],
     safe: [],
-    hotspots: [],
     remainder: [],
-    boundaryEdges: [],
-    meanDensityChange: 0,
     truncated: false,
   };
 
-  for (const nodeSet of areas) {
+  for await (const { graph, expand, adj: localAdj } of planarityCandidates(adj, tagWeights, tick)) {
     await tick();
-    const graph = inducedAdjacency(reduced, nodeSet);
     const nodes = [...graph.keys()];
     const n = nodes.length;
     const edges = [...graph.values()].reduce((sum, ns) => sum + ns.size, 0) / 2;
@@ -662,18 +673,7 @@ async function findNonPlanar(adj, tick, maxFindings = 200, { tagWeights = null }
       result.safe.push(item);
     } else {
       result.suspect.push(item);
-      const hotspotResult = await findDensityHotspots(
-        graph,
-        nodes,
-        HOTSPOT_DENSITY_THRESHOLD,
-        tick,
-      );
-      const hotspots = hotspotResult.areas.map(expand);
-      result.hotspots.push(...hotspots);
-      result.remainder.push(...await undeterminedRemainder(adj, item, hotspots, tick));
-      result.boundaryEdges.push(...hotspotResult.boundaryEdges);
-      result.meanDensityChange +=
-        hotspotResult.meanChange * (graph.size > 1 ? edges : 0);
+      result.remainder.push(...await undeterminedRemainder(localAdj, item, tick));
     }
   }
 
@@ -684,13 +684,6 @@ async function findNonPlanar(adj, tick, maxFindings = 200, { tagWeights = null }
   result.definite.sort(
     (a, b) => b.density - a.density || b.nodes.length - a.nodes.length,
   );
-  const suspectEdges = result.suspect.reduce((sum, item) => sum + item.edges, 0);
-  result.meanDensityChange = suspectEdges
-    ? result.meanDensityChange / suspectEdges
-    : 0;
-  result.hotspots.sort(
-    (a, b) => b.density - a.density || b.nodes.length - a.nodes.length,
-  );
   return result;
 }
 
@@ -698,10 +691,11 @@ async function findNonPlanar(adj, tick, maxFindings = 200, { tagWeights = null }
 module.exports = {
   buildAdjacency,
   findNonPlanar,
+  diagnoseAreaPlanarity,
+  inducedAdjacency,
   findBiconnectedComponents,
   splitStructuralAreas,
   undeterminedRemainder,
   getRemainderKind,
-  REMAINDER_LABELS,
-  HOTSPOT_DENSITY_THRESHOLD,
+  DENSE_LINK_THRESHOLD,
 };

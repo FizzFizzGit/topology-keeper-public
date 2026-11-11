@@ -111,3 +111,43 @@ test('one added shared tag does not collapse three linked communities even when 
   assert.ok(connection);
   assert.equal(connection.parentIds.length, 3);
 });
+
+test('mixed-topic diaries preserve local combined areas and keep diary links across them', async () => {
+  const graph = new Map();
+  // The topics have several directly linked pairs. The pairs share two topic
+  // tags, while the diary tag spans topics and mixed-topic entries.
+  const topics = ['game', 'development', 'books', 'art', 'music', 'cooking', 'travel', 'science', 'health', 'history'];
+  const diaryTags = ['#diary', '#daily1', '#daily2', '#daily3'];
+  for (const topic of topics) {
+    for (let i = 0; i < 2; i++) {
+      const a = `${topic}-${i}-a`, b = `${topic}-${i}-b`;
+      edge(graph, a, b);
+      for (const note of [a, b]) {
+        edge(graph, note, `#${topic}`);
+        edge(graph, note, `#${topic}-detail`);
+        for (const tag of diaryTags) edge(graph, note, tag);
+      }
+    }
+  }
+  for (const tag of ['#game', '#game-detail', ...diaryTags]) {
+    edge(graph, 'mixed-diary', tag);
+    edge(graph, 'session-diary', tag);
+  }
+  // Only the mixed entry also carries the development topic and detail tags.
+  edge(graph, 'mixed-diary', '#development');
+  edge(graph, 'mixed-diary', '#development-detail');
+  const roles = await assessTagRoles(graph, tick);
+  assert.equal(roles.get('#diary').role, 'cross-cutting');
+  const tagWeights = new Map([...roles].map(([tag, role]) => [tag, role.weight]));
+  const planar = await findNonPlanar(graph, tick, 200, { tagWeights });
+  const model = await buildAreaHierarchy(graph, planar, tick);
+  assert.equal(model.parents.length, topics.length);
+  const game = model.parents.find(parent => parent.nodes.includes('game-0-a'));
+  assert.ok(game?.nodes.includes('mixed-diary'));
+  assert.ok(game?.nodes.includes('session-diary'));
+  assert.equal(game.originalAreaIds.length, 2);
+  assert.ok(game.nodes.every(node => node.startsWith('game-') || node.endsWith('-diary')));
+  assert.ok(model.combinedAreas.some(area => area.tag === '#game' && game.combinedAreaIds.includes(area.id)));
+  const diary = model.combinedAreas.find(area => area.tag === '#diary' && area.scope === 'cross-parent');
+  assert.equal(diary?.parentIds.length, topics.length);
+});

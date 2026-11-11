@@ -1,9 +1,9 @@
+const { readNoteMetadata, propertyLinkTargets } = require('./note-metadata');
 // Read-only ordinary-note analysis, separate from generated-file cleanup.
 function findIsolatedNotes(app, { isManaged, getAllTags, allowedFolder = '', linksProperty = 'links' }) {
-  const files = app.vault.getMarkdownFiles().filter(file => !isManaged(file));
+  const { files, caches, ready } = readNoteMetadata(app, file => !isManaged(file));
   const byPath = new Map(files.map(file => [file.path, file]));
-  const caches = new Map(files.map(file => [file.path, app.metadataCache.getFileCache(file)]));
-  if ([...caches.values()].some(cache => !cache)) return { isolated: [], tagOnly: [], allowed: [], ready: false };
+  if (!ready) return { isolated: [], tagOnly: [], allowed: [], ready: false };
   const linked = new Set();
   const connect = (source, target) => {
     if (source !== target && byPath.has(source) && byPath.has(target)) {
@@ -17,11 +17,7 @@ function findIsolatedNotes(app, { isManaged, getAllTags, allowedFolder = '', lin
   const tagCounts = new Map();
   for (const file of files) {
     const cache = caches.get(file.path);
-    for (const raw of [].concat(cache.frontmatter?.[linksProperty] ?? [])) {
-      const match = /^\[\[([^\]|#]+)/.exec(String(raw).trim());
-      const target = match && app.metadataCache.getFirstLinkpathDest(match[1], file.path);
-      if (target) connect(file.path, target.path);
-    }
+    for (const target of propertyLinkTargets(app, file, cache, linksProperty)) connect(file.path, target.path);
     const tags = new Set(getAllTags(cache) ?? []);
     tagsByPath.set(file.path, tags);
     for (const tag of tags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);

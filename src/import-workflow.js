@@ -4,7 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { BaseNameModal } = require("./base-modal");
 const makeThumbnail = require("./thumbnail");
-const { CONFIG, FOLDERS } = require("./plugin-settings");
+const { CONFIG } = require("./plugin-settings");
 const { toSourceUrl, filenameFromSource } = require("./source-url");
 
 const newId = () => crypto.randomUUID();
@@ -52,22 +52,20 @@ class ImportWorkflow {
     this.importing = true;
     try {
       const main = plugin.app.vault.getAbstractFileByPath(pending.mainNotePath);
-      if (!main || main.extension !== "md" || Object.values(FOLDERS).some(folder => main.path.startsWith(`${folder}/`)))
+      if (!main || main.extension !== "md" || Object.values(this.plugin.state.folders).some(folder => main.path.startsWith(`${folder}/`)))
         throw new Error(t("import.missingSource"));
       const names = [];
       for (const target of pending.paths ?? []) {
         const file = plugin.app.vault.getAbstractFileByPath(target);
         if (!file || !["md", "base"].includes(file.extension)) continue;
-        if (!Object.values(FOLDERS).some(folder => file.path.startsWith(`${folder}/`))) continue;
-        const basePath = `${FOLDERS.base}/${pending.baseFileName}`;
+        if (!Object.values(this.plugin.state.folders).some(folder => file.path.startsWith(`${folder}/`))) continue;
+        const basePath = `${this.plugin.state.folders.base}/${pending.baseFileName}`;
         if (file.extension === "md" && pending.paths.includes(basePath) && plugin.app.vault.getAbstractFileByPath(basePath))
           await plugin.baseManager.addMetaBaseName(file, pending.baseFileName);
         names.push(file.extension === "base" ? file.name : file.basename);
       }
       await plugin.baseManager.appendLinks(main, names);
-      const { pendingImport, ...completed } = plugin.state;
-      await plugin.saveData(completed);
-      delete plugin.state.pendingImport;
+      await this.clearPendingRecord();
       plugin.refreshBaseLabels();
       new Notice(t('import.recovered', { count: names.length }));
     } catch (error) {
@@ -84,13 +82,24 @@ class ImportWorkflow {
     await this.plugin.saveData(this.plugin.state);
   }
 
+  // 保存待ちの間に他の設定保存が起きても、完了した復旧記録を再び含めない。
+  // 失敗時はメモリ上へ記録を戻し、既存の復旧フローを継続できるようにする。
+  async clearPendingRecord() {
+    const plugin = this.plugin;
+    const pending = plugin.state.pendingImport;
+    delete plugin.state.pendingImport;
+    try { await plugin.saveData(plugin.state); }
+    catch (error) {
+      plugin.state.pendingImport = pending;
+      throw error;
+    }
+  }
+
   async discardRecovery() {
     if (this.importing || !this.plugin.state.pendingImport) return;
     if (!confirm(t("import.clearConfirm"))) return;
-    const { pendingImport, ...completed } = this.plugin.state;
     try {
-      await this.plugin.saveData(completed);
-      delete this.plugin.state.pendingImport;
+      await this.clearPendingRecord();
       new Notice(t("import.cleared"));
     } catch (error) {
       new Notice(t('import.clearFailed', { error: error.message }));
@@ -161,7 +170,7 @@ class ImportWorkflow {
         }
 
         const result = await this.createMetaNote(rawPath, source, baseFileName);
-        await this.recordTarget(result.file);
+        // createMetaNoteは作成直後に復旧記録を保存する。ここで同じ設定を再保存しない。
         metaBySource.set(source, result.file);
         linkNames.push(result.file.basename);
         created++;
@@ -175,9 +184,7 @@ class ImportWorkflow {
 
     const appended = await baseManager.appendLinks(mainNote, linkNames);
     if (plugin.state.pendingImport) {
-      const { pendingImport, ...completed } = plugin.state;
-      await plugin.saveData(completed);
-      delete plugin.state.pendingImport;
+      await this.clearPendingRecord();
     }
     new Notice(
       [
@@ -215,12 +222,12 @@ class ImportWorkflow {
   async createMetaNote(rawPath, source, baseFileName) {
     const plugin = this.plugin;
     const title = newId();
-    const file = await plugin.app.vault.create(`${FOLDERS.meta}/${title}.md`, "");
+    const file = await plugin.app.vault.create(`${this.plugin.state.folders.meta}/${title}.md`, "");
     await this.recordTarget(file);
     let thumbPath = null;
     let thumbFailed = false;
     if (this.isImage(rawPath)) {
-      const candidate = `${FOLDERS.thumb}/${newId()}.webp`;
+      const candidate = `${this.plugin.state.folders.thumb}/${newId()}.webp`;
       try {
         await makeThumbnail(
           plugin.app,
@@ -236,7 +243,6 @@ class ImportWorkflow {
     }
     await plugin.app.fileManager.processFrontMatter(file, (frontmatter) => {
       frontmatter.source = source;
-      frontmatter.topologyKeeper = true;
       frontmatter.title = filenameFromSource(source);
       frontmatter.base = [baseFileName];
       if (thumbPath) frontmatter.cover = `[[${thumbPath}]]`;

@@ -10,13 +10,13 @@ function fixture(saved = {}) {
   let resized;
   let disconnected = false;
   const context = { module: { exports: {} }, document: doc, window: win, setTimeout, clearTimeout,
-    require: id => id === './i18n' ? { t: require('../src/i18n-core').createTranslator('ja') } : id === 'obsidian' ? { setIcon() {} } : require(id),
+    require: id => id === './i18n' ? { t: require('../src/i18n-core').createTranslator('ja') } : id === 'obsidian' ? { setIcon() {} } : require('../src/' + id.replace('./', '')),
     ResizeObserver: class {
       constructor(callback) { resized = callback; }
       observe() {}
       disconnect() { disconnected = true; }
     } };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../src/graph-view'), 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/graph-window-position'), 'utf8'), context);
   const head = new EventTarget();
   const panel = {
     style: { left: '48px', top: '32px' },

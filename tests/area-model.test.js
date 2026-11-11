@@ -101,7 +101,7 @@ test('original-area classifications use direct note links and tag evidence prese
   assert.equal(areaSelection(model, 'vanished'), null);
 });
 
-test('legacy findings retain notes inside contracted edges but exclude dangling branches', async () => {
+test('parent findings retain notes inside contracted edges but exclude dangling branches', async () => {
   const graph = new Map();
   clique(graph, 'a');
   graph.get('a0').delete('a1'); graph.get('a1').delete('a0');
@@ -119,15 +119,16 @@ test('legacy findings retain notes inside contracted edges but exclude dangling 
   assert.equal(model.originalAreas[0].nodes.includes('leaf'), false);
 });
 
-test('hotspot owns its direct-link groups, including pairs and chains, and their tag connection', async () => {
+test('an undetermined area owns its direct-link groups, including pairs and chains, and their tag connection', async () => {
   const graph = new Map();
   edge(graph, 'a0', 'a1'); edge(graph, 'a1', 'a2'); edge(graph, 'b0', 'b1');
   edge(graph, 'a2', 'outside');
   for (const node of ['a0', 'b0']) edge(graph, '#cross', node);
-  const planar = { hotspots: [{ nodes: ['a0', 'b0', '#cross'], originalNodes: ['a0', 'a1', 'a2', 'b0', 'b1', '#cross'] }] };
+  const planar = { remainder: [{ nodes: ['a0', 'b0', '#cross'], originalNodes: ['a0', 'a1', 'a2', 'b0', 'b1', '#cross'] }] };
   const model = await buildAreaHierarchy(graph, planar, tick);
   assert.equal(model.parents.length, 1);
-  assert.equal(model.parents[0].label, 'ホットスポット 1');
+  assert.equal(model.parents[0].category, 'low');
+  assert.equal(model.parents[0].labelIndex, 1);
   assert.equal(model.originalAreas.length, 2);
   assert.ok(model.originalAreas.every(area => area.parentId === model.parents[0].id));
   assert.equal(model.originalAreas.some(area => area.nodes.includes('outside')), false);
@@ -140,10 +141,37 @@ test('cross-parent connections preserve both parent references and reject identi
   const graph = new Map();
   edge(graph, 'a0', 'a1'); edge(graph, 'b0', 'b1');
   edge(graph, '#cross', 'a0'); edge(graph, '#cross', 'b0');
-  const model = await buildAreaHierarchy(graph, { hotspots: [{ nodes: ['a0', 'a1'] }, { nodes: ['b0', 'b1'] }] }, tick);
+  const model = await buildAreaHierarchy(graph, { remainder: [{ nodes: ['a0', 'a1'] }, { nodes: ['b0', 'b1'] }] }, tick);
   assert.equal(model.combinedAreas.length, 1);
   assert.equal(model.combinedAreas[0].scope, 'cross-parent');
   assert.equal(model.combinedAreas[0].parentIds.length, 2);
-  const overlap = await buildAreaHierarchy(graph, { safe: [{ nodes: ['a0', 'a1'] }], hotspots: [{ nodes: ['a0', 'a1'] }] }, tick);
+  const overlap = await buildAreaHierarchy(graph, { safe: [{ nodes: ['a0', 'a1'] }], remainder: [{ nodes: ['a0', 'a1'] }] }, tick);
   assert.equal(overlap.combinedAreas.length, 0);
+});
+
+test('shared tags include individual notes in combined areas and cross-parent selections', async () => {
+  const { areaSelection } = require('../src/area-model');
+  const graph = new Map();
+  edge(graph, 'diary', 'exercise');
+  for (const node of ['diary', 'trivia', 'job', 'outside']) edge(graph, '#jobs', node);
+  for (const node of ['trivia', 'job']) edge(graph, '#a-small', node);
+  edge(graph, '#private', 'unrelated');
+  const model = await buildAreaHierarchy(graph, { remainder: [
+    { nodes: ['diary', 'exercise', 'trivia', 'job', 'unrelated'] },
+    { nodes: ['outside'] },
+  ] }, tick);
+  assert.equal(model.originalAreas.length, 1);
+  const local = model.combinedAreas.find(area => area.scope === 'within-parent');
+  assert.equal(local.tag, '#jobs');
+  assert.deepEqual(model.combinedAreas.filter(area => area.scope === 'within-parent')
+    .map(area => [area.tag, area.noteCount]), [['#jobs', 4], ['#a-small', 2]]);
+  assert.deepEqual(local.members.filter(member => member.standalone).flatMap(member => member.nodes), ['job', 'trivia']);
+  const selection = areaSelection(model, local.id);
+  assert.deepEqual(selection.nodes.sort(), ['#jobs', 'diary', 'exercise', 'job', 'trivia']);
+  assert.equal(selection.groups.length, 1);
+  assert.ok(selection.links.every(([from, to]) => graph.get(from).has(to)));
+
+  const crossing = model.combinedAreas.find(area => area.scope === 'cross-parent');
+  assert.deepEqual(new Set(crossing.parentIds), new Set(model.parents.map(parent => parent.id)));
+  assert.ok(areaSelection(model, crossing.id).nodes.includes('outside'));
 });

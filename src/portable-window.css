@@ -1,0 +1,14 @@
+/* 枠: fixed座標はJSのconstrainと共通。自然高で伸び、100vhを超えたら本文を縮める。
+ * --pw-* は利用側のテーマとの接続口。独自CSSを後から読み込めば幅なども変更できる。
+ * 外枠のoverflow:hiddenは角丸と内容のはみ出し対策。スクロールは本文が受け持つ。 */
+.pw-window { position: fixed; display: flex; flex-direction: column; width: max-content; min-width: min(var(--pw-min-width, 0px), var(--pw-width, 340px), calc(100vw - 24px)); max-width: min(var(--pw-width, 340px), calc(100vw - 24px)); min-height: min(var(--pw-min-height, 0px), var(--pw-max-height, 100vh)); max-height: var(--pw-max-height, 100vh); box-sizing: border-box; overflow: hidden; border: 1px solid var(--pw-border, #b8bdc9); border-radius: 10px; color: var(--pw-text, #252a35); background: var(--pw-background, #fff); box-shadow: 0 8px 30px #0002; font: calc(14px * var(--pw-font-scale, 1))/1.5 system-ui, sans-serif; }
+/* display:flexより優先して非表示にする。hidden属性だけでは表示指定に負ける場合がある。 */
+.pw-window[hidden] { display: none; }
+/* ヘッダーは縮めず、本文に高さを譲らせる。文字選択を抑えてドラッグしやすくする。 */
+.pw-head { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; padding: 10px 14px; border-bottom: 1px solid var(--pw-border, #b8bdc9); cursor: move; user-select: none; }
+/* 長いタイトルでもボタンを押し出さず、タイトル側で折り返す。 */
+.pw-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pw-head button { cursor: pointer; font: inherit; }
+/* min-height:0が重要: flex項目の内容由来の最小高を解除し、
+ * 上限到達後に本文だけ縮んでスクロールできるようにする。短い内容ではバーは出ない。 */
+.pw-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px; }
