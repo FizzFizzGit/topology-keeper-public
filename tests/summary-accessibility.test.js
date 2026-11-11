@@ -25,7 +25,12 @@ class Element {
 function walk(element) { return element.children.flatMap(child => [child, ...walk(child)]); }
 function load(name, document = { body: new Element('body') }, language = 'ja') {
   const context = { module: { exports: {} }, document,
-    require: id => id === 'obsidian' ? { setIcon() {}, setTooltip() {} } : id === './i18n' ? { t: require('../src/i18n-core').createTranslator(language) } : require('../src/' + id.replace('./', '')) };
+    require: id => {
+      if (id === 'obsidian') return { setIcon() {}, setTooltip() {} };
+      if (id === './i18n') return { t: require('../src/i18n-core').createTranslator(language) };
+      if (id === './hover-menu') return { closeActiveHoverMenu() {} };
+      return require('../src/' + id.replace('./', ''));
+    } };
   vm.runInNewContext(fs.readFileSync(require.resolve('../src/' + name), 'utf8'), context);
   return context.module.exports;
 }

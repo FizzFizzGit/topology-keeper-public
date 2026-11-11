@@ -1,7 +1,8 @@
 const { setIcon } = require("obsidian");
-let closeActiveMenu = null;
+let activeMenuCleanup = null;
 
-// 行内に所有させ、リスト再描画時にはメニューも一緒に破棄する。
+function closeActiveHoverMenu() { activeMenuCleanup?.(); }
+
 function attachHoverMenu(trigger, row, items, label = "") {
   let menu = null;
   let timer = null;
@@ -15,7 +16,7 @@ function attachHoverMenu(trigger, row, items, label = "") {
     menu = null;
     row.classList.remove("is-editing");
     trigger.setAttr("aria-expanded", "false");
-    if (closeActiveMenu === close) closeActiveMenu = null;
+    if (activeMenuCleanup === close) activeMenuCleanup = null;
   };
   const scheduleClose = () => {
     cancelOpen();
@@ -28,9 +29,12 @@ function attachHoverMenu(trigger, row, items, label = "") {
     cancelClose();
     if (trigger.isConnected === false) return;
     if (menu) return;
-    closeActiveMenu?.();
-    closeActiveMenu = close;
-    menu = row.createDiv({ cls: "tk-file-hover-menu", attr: { role: "menu", "aria-label": "ファイルの編集" } });
+    closeActiveHoverMenu();
+    activeMenuCleanup = close;
+    const { body, defaultView: win } = trigger.ownerDocument;
+    // サイドパネルのクリッピングを避け、行と同じビューポート座標で配置する。
+    menu = body.createDiv({ cls: "tk-file-hover-menu", attr: { role: "menu", "aria-label": "ファイルの編集" } });
+    menu.style.setProperty("--pw-font-scale", win.getComputedStyle(row).getPropertyValue("--pw-font-scale"));
     row.classList.add("is-editing");
     if (label) menu.createDiv({ cls: "tk-file-hover-title", text: label, attr: { role: "presentation" } });
     trigger.setAttr("aria-expanded", "true");
@@ -70,7 +74,6 @@ function attachHoverMenu(trigger, row, items, label = "") {
     });
     const rect = trigger.getBoundingClientRect();
     const bounds = menu.getBoundingClientRect();
-    const win = trigger.ownerDocument.defaultView;
     // リストの下の行に重ならないよう、対象行の横に並べる。
     const left = rect.right + 6 + bounds.width <= win.innerWidth - 4
       ? rect.right + 6
@@ -82,7 +85,8 @@ function attachHoverMenu(trigger, row, items, label = "") {
     cancelClose();
     cancelOpen();
     if (menu) return;
-    closeActiveMenu?.();
+    closeActiveHoverMenu();
+    activeMenuCleanup = close;
     openTimer = setTimeout(open, 220);
   });
   trigger.addEventListener("mouseleave", scheduleClose);
@@ -103,4 +107,4 @@ function attachHoverMenu(trigger, row, items, label = "") {
     }
   });
 }
-module.exports = { attachHoverMenu };
+module.exports = { attachHoverMenu, closeActiveHoverMenu };

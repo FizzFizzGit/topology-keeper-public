@@ -3,6 +3,7 @@ const { createDeferredRefresh } = require('./deferred-refresh');
 const { attachDrag, detachDrag, constrain, createFrame, applyAppearance, registerWindow } = require('./portable-window');
 const { t } = require('./i18n');
 const { attachInfoPopover } = require('./info-popover');
+const { closeActiveHoverMenu } = require('./hover-menu');
 const { sectionHelp } = require('./section-help');
 const { renderInfoContent } = require('./info-content');
 const { setIcon } = require("obsidian");
@@ -43,6 +44,7 @@ class MainWindowView {
 
   dispose() {
     this.deferredRefresh.cancel();
+    closeActiveHoverMenu();
     this.stacking?.dispose();
     if (this.el) detachDrag(this.el);
     this.el?.remove();
@@ -75,6 +77,7 @@ class MainWindowView {
   }
 
   applyVisibility() {
+    closeActiveHoverMenu();
     this.el?.toggleClass(this.CSS_CLASS.isHidden, !this.state.visible);
     if (!this.state.visible) this.api.hideInfoPopovers();
     if (this.state.visible) this.api.scheduleMaint();
@@ -181,16 +184,22 @@ class MainWindowView {
     const scrollTop = el.querySelector(".alp-win-body")?.scrollTop ?? 0;
     // 部分グラフは分析窓が所有する。メイン窓の更新では破棄しない。
     this.api.removeInfoPopovers("main");
+    closeActiveHoverMenu();
     el.empty();
 
     el.toggleClass("has-issues", (orphanCount ?? 0) > 0);
 
     // 共通ライブラリで枠を生成し、Obsidian固有の中身だけをここで描く。
     const { head, body } = createFrame(el, { headClass: 'alp-win-head', bodyClass: 'alp-win-body' });
+    body.addEventListener('scroll', closeActiveHoverMenu);
+    body.addEventListener('toggle', event => {
+      if (!event.target.open) closeActiveHoverMenu();
+    }, true);
     const mark = head.createSpan({ cls: "alp-win-mark" });
     setIcon(mark, this.ICON.network);
     head.createSpan({ cls: "alp-win-title", text: "Topology Keeper" });
     this.iconButton(head, 'fold-vertical', t('window.collapseAll'), () => {
+      closeActiveHoverMenu();
       this.collapseSections(body);
       this.fitWindowToContent();
     });
