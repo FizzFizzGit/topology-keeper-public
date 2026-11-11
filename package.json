@@ -1,6 +1,6 @@
 {
   "name": "topology-keeper",
-  "version": "0.30.0",
+  "version": "0.30.1",
   "description": "Obsidian plugin for link and tag analysis and local external-file management",
   "private": true,
   "scripts": {
