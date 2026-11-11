@@ -95,7 +95,7 @@ Managed folders are configurable. Changing a folder setting does not move existi
 
 Distance analysis uses a graph of notes and tags, with an edge for each direct link or tag assignment. Floyd–Warshall calculates shortest hop counts. Neighborhood overlap determines boundary votes. Edges above the provisional 2.5% split-vote threshold separate distance areas. The current limit is 256 vertices.
 
-Planarity is checked on the connections within each primitive or combined area. The check uses edge bounds and K₅ and K₃,₃ patterns, then tests edge orders or left–right cycle constraints when needed. Combined areas use average connections per vertex, including note and tag vertices. The provisional dense threshold is 3.5 connections per vertex.
+Planarity is checked on the connections within each primitive or combined area. The check uses edge bounds and K₅ and K₃,₃ tests based on Kuratowski’s theorem, then tests edge orders or left–right cycle constraints when needed. Combined areas use average connections per vertex, including note and tag vertices. The provisional dense threshold is 3.5 connections per vertex.
 
 The four configurable defaults are orange for dense planar, blue for sparse planar, red for dense nonplanar, and gray for sparse nonplanar. Undetermined combined areas have no color. A note shared by multiple combined areas takes the color of the largest classified area in the standard graph.
 
