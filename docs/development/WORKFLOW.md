@@ -6,7 +6,7 @@
 | --- | --- |
 | ルート | README、ライセンス、npm・Obsidian・Gitの設定、バッチの入口 |
 | `src/` | プラグインの起動口 `main.js`、共通CSS、機能別ソース |
-| `scripts/` | ビルド・配置・配布・検証のスクリプト |
+| `../build/` | ビルド・配置・配布・検証のスクリプト |
 | `docs/` | 仕様・設計・開発記録 |
 | `docs/development/measurements/` | ベンチマークのJSONL生データ |
 | `output/` | PDF等の成果物と検証ログ。Git管理対象外 |
@@ -28,11 +28,13 @@
 
 ## ビルドと配置
 
+実装はワークスペース直下の `build/` に集約しています。ルートから `build\build-dev.bat` を実行すると開発用Vaultへ配置し、`build\build-dist.bat` は公開側のソースから配布アセットを生成します。両側の `npm test` は共通ランナーを使い、実行元リポジトリのテストを実行します。
+
 - `npm run build`／`npm run deploy`：`PLUGIN_DIR`へ直接ビルドし、成功時にCSSとmanifestを同期する。
 - `npm run dev`：同じ配置先へ直接ビルドし、JS・CSS・manifestの変更を監視する。
 - `build.bat`／`dev.bat`：`env.local.bat`等から環境を読み、上記のビルド／監視を実行する。
 - 配置先未指定時はエラーにする。ルートや`build/`へ代替出力しない。
-- 配布用は`node scripts/build-release.mjs`で`dist/<version>/`へ三ファイルを直接生成する。
+- 配布用は`node ../build/build-release.mjs`で`dist/<version>/`へ三ファイルを直接生成する。
 - 公開リポジトリの`npm run build`は、この配布用ビルドを呼ぶ。
 
 シェルからnpmコマンドを使う場合は`PLUGIN_DIR`を環境変数として設定する。

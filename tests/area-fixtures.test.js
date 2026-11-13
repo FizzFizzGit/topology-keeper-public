@@ -1,6 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { inspect, cases } = require('../scripts/area-fixtures.cjs');
+const path = require('node:path');
+const build = process.env.TOPOLOGY_KEEPER_BUILD_DIR ?? path.resolve(__dirname, '../../build');
+const { inspect, cases } = require(path.join(build, 'area-fixtures.cjs'));
 
 test('shared-tag fixture retains both original note groups through the real adjacency builder', async () => {
   for (const name of ['before-tag', 'one-shared-tag']) {
