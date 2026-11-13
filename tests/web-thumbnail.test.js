@@ -1,9 +1,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { pageUrl, captureWebPage, hasPageContent } = require('../src/web-page-capture');
-const { thumbnailMarkdown, WebThumbnailWorkflow } = require('../src/web-thumbnail-workflow');
-const { createTranslator } = require('../src/i18n-core');
+const { pageUrl, captureWebPage, hasPageContent } = require('../src/web-thumbnail/web-page-capture');
+const { thumbnailMarkdown, WebThumbnailWorkflow } = require('../src/web-thumbnail/web-thumbnail-workflow');
+const { createTranslator } = require('../src/i18n/i18n-core');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
@@ -232,9 +232,9 @@ test('preview has translated controls, shows a local image and releases its obje
       close() { this.onClose(); }
     }
     const module = { exports: {} };
-    vm.runInNewContext(fs.readFileSync(require.resolve('../src/web-thumbnail-modal'), 'utf8'), {
+    vm.runInNewContext(fs.readFileSync(require.resolve('../src/web-thumbnail/web-thumbnail-modal'), 'utf8'), {
       module, Blob, URL: { createObjectURL: () => 'blob:test', revokeObjectURL: value => revoked.push(value) },
-      require: name => name === 'obsidian' ? { Modal } : name === './i18n' ? { t } : require('../src/' + name.replace('./', '')),
+      require: name => name === 'obsidian' ? { Modal } : name.endsWith('/i18n') ? { t } : require('node:module').createRequire(require.resolve('../src/web-thumbnail/web-thumbnail-modal'))(name),
     });
     let aborted = false;
     const modal = new module.exports.WebThumbnailModal({}, 'https://example.com', () => { aborted = true; });
@@ -267,13 +267,13 @@ test('chosen width reaches capture, is recorded for cleanup and can omit the tit
   assert.ok(f.state().inserted.value.trim().startsWith('> [![Example]'));
   assert.equal(f.state().inserted.value.includes('../'), false);
   assert.equal(f.state().inserted.value.includes('web-'), false);
-  const { loadSettings } = require('../src/plugin-settings');
+  const { loadSettings } = require('../src/settings/plugin-settings');
   const restored = loadSettings(JSON.parse(JSON.stringify(f.plugin.state)));
   assert.deepEqual(Object.values(restored.webThumbnailFiles), [128]);
 });
 
 test('UUID image styling respects the recorded custom width and does not claim unrelated UUIDs', () => {
-  const { styleWebThumbnails, normalizeWebThumbnailFiles } = require('../src/web-thumbnail-data');
+  const { styleWebThumbnails, normalizeWebThumbnailFiles } = require('../src/web-thumbnail/web-thumbnail-data');
   const name = '12345678-1234-4123-8123-123456789abc.png';
   const known = { getAttribute: () => `app://vault/_thumbs/${name}`, style: {} };
   const unknown = { getAttribute: () => 'app://vault/12345678-1234-4123-8123-123456789abd.png', style: {} };

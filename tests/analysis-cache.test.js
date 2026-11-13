@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const { sameAdjacency } = require('../src/analysis-cache');
+const { sameAdjacency } = require('../src/analysis/analysis-cache');
 const graph = (nodes = ['a', 'b']) => new Map(nodes.map(node => [node, new Set(nodes.filter(other => other !== node))]));
 
 test('graph comparison ignores iteration order but detects added and removed connections', () => {
@@ -22,18 +22,18 @@ test('maintenance reuses completed structure, refreshes cleanup, and honors forc
     saveData: async () => {},
     computeOrphans: () => { cleanups++; return { orphans: [], strayThumbs: [], orphanBases: [], ready: true }; } };
   const dependencies = {
-    './i18n': { t: key => key }, obsidian: { Notice: class {} },
-    './plugin-settings': { CONFIG: { analysisTimeLimit: 10000 } },
-    './graph-analysis': { buildAdjacency: () => adjacency, findNonPlanar: async () => {
+    '../i18n/i18n': { t: key => key }, obsidian: { Notice: class {} },
+    '../settings/plugin-settings': { CONFIG: { analysisTimeLimit: 10000 } },
+    './vault-graph': { buildAdjacency: () => adjacency },
+    '../graph/graph-analysis': { findNonPlanar: async () => {
       analyses++; if (fail) throw new Error('test failure'); return { safe: [] };
     } },
-    './area-model': { buildAreaHierarchy: async () => ({ combinedAreas: [] }) },
-    './tag-role': { assessTagRoles: async () => new Map() },
+    '../graph/area-model': { buildAreaHierarchy: async () => ({ combinedAreas: [] }) },
+    '../tags/tag-role': { assessTagRoles: async () => new Map() },
     './note-isolation': {}, './analysis-cache': { sameAdjacency },
-    './distance-area-analysis': require('../src/distance-area-analysis'),
-    './distance-area-cache': require('../src/distance-area-cache'),
+    './distance-analysis-run': require('../src/analysis/distance-analysis-run'),
   };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../src/maintenance-workflow'), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/analysis/maintenance-workflow'), 'utf8'), {
     module, require: id => dependencies[id], performance, setTimeout, console: { error() {} },
   });
   const workflow = new module.exports(plugin, { maxFindings: 10 });
@@ -77,11 +77,11 @@ test('detail view refreshes the graph without rebuilding the area list when sele
   const result = { orphans: [], strayThumbs: [], orphanBases: [], planar: {}, areaModel: {} };
   const body = { addEventListener() {}, scrollTop: 0 };
   const head = { createSpan: () => ({}) };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../src/detail-window'), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/windows/detail-window'), 'utf8'), {
     module, Date, setTimeout,
-    require: id => id === 'obsidian' ? { setIcon() {} } : id === './i18n' ? { t: key => key }
+    require: id => id === 'obsidian' ? { setIcon() {} } : id.endsWith('/i18n') ? { t: key => key }
       : id === './portable-window' ? { createFrame: () => ({ head, body }) }
-      : require('../src/' + id.replace('./', '')),
+      : require('node:module').createRequire(require.resolve('../src/windows/detail-window'))(id),
   });
   const view = new module.exports({ CSS_CLASS: {}, ICON: {}, isMaintSpinning: () => spinning,
     getPointerHeldAt: () => pointerHeldAt, getResult: () => result,
@@ -123,24 +123,26 @@ test('releasing the pointer keeps the redraw hold active until the click can fin
   const module = { exports: {} };
   const document = {}, window = {};
   const listeners = new Map(), timers = new Map();
-  vm.runInNewContext(fs.readFileSync(require.resolve('../src/main'), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/windows/window-host'), 'utf8'), {
     module, document, window, Date,
     require: id => id === 'obsidian' ? { Plugin: class {}, debounce: fn => fn } : {},
     setTimeout: callback => { const id = {}; timers.set(id, callback); return id; },
     clearTimeout: id => timers.delete(id),
   });
-  const plugin = new module.exports();
-  plugin.registerDomEvent = (_target, name, callback, capture) => {
-    if (capture) listeners.set(name, callback);
-  };
   let redraws = 0;
-  plugin.refreshWin = () => redraws++;
-  plugin.registerPointerEvents();
+  const host = Object.create(module.exports.prototype);
+  host.plugin = {
+    registerDomEvent(_target, name, callback, capture) {
+      if (capture) listeners.set(name, callback);
+    },
+    refreshWin() { redraws++; },
+  };
+  host.registerPointerEvents();
   listeners.get('pointerdown')({ target: { closest: () => true } });
   listeners.get('pointerup')();
-  assert.ok(plugin.pointerHeldAt > 0);
+  assert.ok(host.pointerHeldAt > 0);
   assert.equal(redraws, 0);
   for (const callback of timers.values()) callback();
-  assert.equal(plugin.pointerHeldAt, 0);
+  assert.equal(host.pointerHeldAt, 0);
   assert.equal(redraws, 1);
 });

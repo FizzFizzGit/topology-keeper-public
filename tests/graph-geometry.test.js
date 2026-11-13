@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { edgeDirections, fittedView, arrowTip, nodeRadius, NODE_STROKE_WIDTH } = require('../src/graph-geometry');
+const { edgeDirections, fittedView, arrowTip, nodeRadius, NODE_STROKE_WIDTH } = require('../src/graph-view/graph-geometry');
 
 test('arrow tip clears the actual target radius and stroke in either direction', () => {
   for (const selected of [true, false]) for (const x of [-100, 100]) {

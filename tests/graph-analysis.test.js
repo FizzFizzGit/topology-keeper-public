@@ -1,9 +1,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { findNonPlanar, diagnoseAreaPlanarity } = require('../src/graph-analysis');
-const { undeterminedRemainder } = require('../src/graph-analysis');
-const { getRemainderKind } = require('../src/graph-analysis');
-const { checkSmallPlanarity } = require('../src/small-planarity');
+const { findNonPlanar, diagnoseAreaPlanarity } = require('../src/graph/graph-analysis');
+const { undeterminedRemainder } = require('../src/graph/graph-analysis');
+const { getRemainderKind } = require('../src/graph/graph-analysis');
+const { checkSmallPlanarity } = require('../src/graph/small-planarity');
 const tick = async () => {};
 function edge(g, a, b) {
   if (!g.has(a)) g.set(a, new Set());

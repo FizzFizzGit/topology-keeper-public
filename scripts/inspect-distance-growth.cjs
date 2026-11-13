@@ -1,7 +1,7 @@
 const { readFileSync, writeFileSync } = require('node:fs');
 const { performance } = require('node:perf_hooks');
-const { measureGraphDistances } = require('../src/graph-distances');
-const { makeProfile, compareGrowth } = require('../src/distance-area-growth');
+const { measureGraphDistances } = require('../src/graph/graph-distances');
+const { makeProfile, compareGrowth } = require('../src/graph/distance-area-growth');
 
 // 距離ログのペア一覧を読む。タグは最短経路には含まれているが、成長の人数には数えない。
 function readNoteDistances(filename, graph) {

@@ -1,11 +1,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { renderInfoContent } = require('../src/info-content');
-const { sectionHelp } = require('../src/section-help');
-const { attachInfoPopover, hideInfoPopover, disposeInfoPopover } = require('../src/info-popover');
-const { createTranslator } = require('../src/i18n-core');
-const { APPEARANCE_FIELDS } = require('../src/window-appearance');
-const { dictionaries } = require('../src/ui-dictionary');
+const { renderInfoContent } = require('../src/windows/info-content');
+const { sectionHelp } = require('../src/windows/section-help');
+const { attachInfoPopover, hideInfoPopover, disposeInfoPopover } = require('../src/windows/info-popover');
+const { createTranslator } = require('../src/i18n/i18n-core');
+const { APPEARANCE_FIELDS } = require('../src/settings/window-appearance');
+const { dictionaries } = require('../src/i18n/ui-dictionary');
 
 // Obsidian拡張DOMを持たない最小要素。標準DOMだけの依存であることも確認する。
 class Element {

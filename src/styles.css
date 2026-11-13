@@ -16,7 +16,9 @@
 /* 欄 */
 .alp-sec-row { position: relative; display: block; border-top: 1px solid var(--background-modifier-border); }
 .alp-sec { display: block; width: 100%; min-width: 0; border-top: 0; }
-.alp-sec > summary { cursor: pointer; box-sizing: border-box; min-height: 30px; padding: 5px 30px 5px 0; font-weight: var(--font-semibold); }
+.alp-sec > .alp-sec-summary { box-sizing: border-box; min-height: 30px; padding: 5px 30px 5px 0; font-weight: var(--font-semibold); }
+.alp-sec > summary { cursor: pointer; }
+.alp-sec > h3.alp-sec-summary { margin: 0; font-size: inherit; }
 .alp-sec-summary { display: flex; align-items: center; gap: 6px; }
 .alp-sec-title { flex: 1; min-width: 0; }
 .alp-info-wrap { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; }
@@ -267,6 +269,9 @@ button.alp-tag-connection-button {
 .alp-detail-title { flex: 1; min-width: 0; font-weight: var(--font-semibold); }
 .alp-detail-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 9px 10px; }
 .alp-detail-body > .alp-sec-row { margin-top: 2px; }
+.alp-distance-controls { display: flex; align-items: center; gap: 6px; margin-block: 4px; }
+.alp-distance-progress { flex: 1; min-width: 0; }
+.alp-distance-controls > button { flex: none; }
 .alp-detail-body > .alp-sec-row:first-child { border-top: 0; }
 @media (max-width: 700px) {
     .alp-win { width: min(var(--pw-width, 280px), calc(100vw - 20px)); }

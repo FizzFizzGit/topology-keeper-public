@@ -2,15 +2,15 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const { loadSettings } = require('../src/plugin-settings');
+const { loadSettings } = require('../src/settings/plugin-settings');
 
 function detailFixture(state) {
   const context = {
     module: { exports: {} },
-    require: id => id === 'obsidian' ? {} : id === './i18n' ? { t: require('../src/i18n-core').createTranslator('ja') } : require('../src/' + id.replace('./', '')),
+    require: id => id === 'obsidian' ? {} : id.endsWith('/i18n') ? { t: require('../src/i18n/i18n-core').createTranslator('ja') } : require('node:module').createRequire(require.resolve('../src/windows/detail-window'))(id),
     window: { innerWidth: 1200, innerHeight: 800 },
   };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../src/detail-window'), 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/windows/detail-window'), 'utf8'), context);
   const View = context.module.exports;
   let hidden = true;
   const view = new View({

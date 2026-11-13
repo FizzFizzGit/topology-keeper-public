@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { findIsolatedNotes } = require('../src/note-isolation');
-const { loadSettings, normalizeAllowedOrphanFolder, resetUserSettings } = require('../src/plugin-settings');
+const { findIsolatedNotes } = require('../src/analysis/note-isolation');
+const { loadSettings, normalizeAllowedOrphanFolder, resetUserSettings } = require('../src/settings/plugin-settings');
 function fixture() {
   const paths = ['normal.md', '未分類/a.md', '未分類/sub/b.md', '未分類別/c.md',
     'out.md', 'in.md', 'tag1.md', 'tag2.md', 'self.md', '_meta/generated.md'];

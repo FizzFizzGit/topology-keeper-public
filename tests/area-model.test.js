@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { buildAreaModel, buildAreaHierarchy } = require('../src/area-model');
-const { findNonPlanar } = require('../src/graph-analysis');
+const { buildAreaModel, buildAreaHierarchy } = require('../src/graph/area-model');
+const { findNonPlanar } = require('../src/graph/graph-analysis');
 const tick = async () => {};
 function edge(graph, a, b) {
   for (const node of [a, b]) if (!graph.has(node)) graph.set(node, new Set());
@@ -88,7 +88,7 @@ test('area model observes cancellation and handles empty input', async () => {
 });
 
 test('original-area classifications use direct note links and tag evidence preserves actual edges', async () => {
-  const { areaSelection } = require('../src/area-model');
+  const { areaSelection } = require('../src/graph/area-model');
   const graph = fixture();
   for (const node of ['a0', 'b1']) edge(graph, '#cross', node);
   const model = await buildAreaModel(graph, tick);
@@ -150,7 +150,7 @@ test('cross-parent connections preserve both parent references and reject identi
 });
 
 test('shared tags include individual notes in combined areas and cross-parent selections', async () => {
-  const { areaSelection } = require('../src/area-model');
+  const { areaSelection } = require('../src/graph/area-model');
   const graph = new Map();
   edge(graph, 'diary', 'exercise');
   for (const node of ['diary', 'trivia', 'job', 'outside']) edge(graph, '#jobs', node);

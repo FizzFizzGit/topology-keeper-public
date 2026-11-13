@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { createDeferredRefresh } = require('../src/deferred-refresh');
+const { createDeferredRefresh } = require('../src/windows/deferred-refresh');
 const { loadSource } = require('./helpers/load-source');
 
 test('held-pointer refresh requests share one timer and cancel on view disposal', () => {
@@ -27,7 +27,7 @@ test('graph interaction cleanup removes listeners and cancels auto-pan without o
     setAttribute() {}
   }
   const frames = new Map();
-  const { bindGraphInteraction } = loadSource('graph-interaction', {}, { window: {
+  const { bindGraphInteraction } = loadSource('graph-view/graph-interaction', {}, { window: {
     requestAnimationFrame: callback => { const id = {}; frames.set(id, callback); return id; },
     cancelAnimationFrame: id => frames.delete(id),
   } });

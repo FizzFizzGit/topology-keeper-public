@@ -3,10 +3,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { performance } = require('node:perf_hooks');
-const { buildAdjacency, findNonPlanar } = require('../src/graph-analysis');
-const { assessTagRoles } = require('../src/tag-role');
-const { TagSuggestionCache } = require('../src/tag-suggest-cache');
-const { CONFIG, DEFAULT_FOLDERS: FOLDERS } = require('../src/plugin-settings');
+const { buildAdjacency } = require('../src/analysis/vault-graph');
+const { findNonPlanar } = require('../src/graph');
+const { assessTagRoles } = require('../src/tags/tag-role');
+const { TagSuggestionCache } = require('../src/tags/tag-suggest-cache');
+const { CONFIG, DEFAULT_FOLDERS: FOLDERS } = require('../src/settings/plugin-settings');
 const getAllTags = cache => cache?.tags?.map(tag => tag.tag) ?? [];
 class TFile {}
 let metrics;
@@ -45,8 +46,8 @@ function load(filename) {
   modules.set(filename, module.exports);
   return module.exports;
 }
-const { computeTagSuggestions } = load(require.resolve('../src/tag-suggest'));
-const { computeOrphans } = load(require.resolve('../src/maintenance-check'));
+const { computeTagSuggestions } = load(require.resolve('../src/tags/tag-suggest'));
+const { computeOrphans } = load(require.resolve('../src/analysis/maintenance-check'));
 function fixture(count) {
   const files = Array.from({ length: count }, (_, i) => Object.assign(new TFile(), {
     path: `note-${i}.md`, extension: 'md', basename: `note-${i}`,

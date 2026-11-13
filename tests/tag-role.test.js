@@ -1,8 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { assessTagRoles } = require('../src/tag-role');
-const { findNonPlanar } = require('../src/graph-analysis');
-const { buildAreaHierarchy } = require('../src/area-model');
+const { assessTagRoles } = require('../src/tags/tag-role');
+const { findNonPlanar } = require('../src/graph/graph-analysis');
+const { buildAreaHierarchy } = require('../src/graph/area-model');
 const tick = async () => {};
 function edge(graph, a, b) {
   for (const node of [a, b]) if (!graph.has(node)) graph.set(node, new Set());

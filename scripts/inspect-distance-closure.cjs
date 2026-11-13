@@ -1,8 +1,8 @@
 const { writeFileSync } = require('node:fs');
 const { performance } = require('node:perf_hooks');
-const { measureGraphDistances } = require('../src/graph-distances');
+const { measureGraphDistances } = require('../src/graph/graph-distances');
 const { readNoteDistances } = require('./inspect-distance-growth.cjs');
-const { makeProfile, makeEdges, voteOnEdges, findComponents, edgeVoteRate } = require('../src/distance-area-growth');
+const { makeProfile, makeEdges, voteOnEdges, findComponents, edgeVoteRate } = require('../src/graph/distance-area-growth');
 
 function findStableAreas(nodes, edges) {
   const parents = Int32Array.from(nodes, (_, i) => i);

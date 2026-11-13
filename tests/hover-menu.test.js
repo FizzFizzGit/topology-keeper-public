@@ -7,7 +7,7 @@ test('hover menu has no click opener, bridges pointer movement, closes on exit a
   const context = { module: { exports: {} }, require: () => ({ setIcon() {} }),
     setTimeout: callback => { pending = callback; return callback; },
     clearTimeout: id => { if (pending === id) pending = null; } };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../src/hover-menu'), 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/windows/hover-menu'), 'utf8'), context);
   class Element {
     constructor() { this.children = []; this.events = {}; this.attrs = {}; this.style = { setProperty(name, value) { this[name] = value; } }; this.classList = new Set(); this.classList.remove = value => this.classList.delete(value); this.classList.add = Set.prototype.add.bind(this.classList); }
     createEl(tag, options = {}) { const child = new Element(); child.tag = tag; child.options = options; child.parent = this; this.children.push(child); return child; }

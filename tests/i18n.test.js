@@ -2,8 +2,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const { dictionaries } = require('../src/ui-dictionary');
-const { createTranslator, normalizeLanguage } = require('../src/i18n-core');
+const { dictionaries } = require('../src/i18n/ui-dictionary');
+const { createTranslator, normalizeLanguage } = require('../src/i18n/i18n-core');
 const placeholders = message => [...message.matchAll(/\{(\w+)\}/g)].map(match => match[1]).sort();
 
 test('Japanese and English dictionaries have identical keys and interpolation arguments', () => {
@@ -31,8 +31,8 @@ test('language resolution, English fallback, singular counts and literal user te
 test('runtime translator follows the Obsidian language without relying on browser language', () => {
   let language = 'ja';
   const module = { exports: {} };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../src/i18n'), 'utf8'), {
-    module, require: id => id === 'obsidian' ? { getLanguage: () => language } : require('../src/i18n-core'),
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/i18n/i18n'), 'utf8'), {
+    module, require: id => id === 'obsidian' ? { getLanguage: () => language } : require('../src/i18n/i18n-core'),
   });
   assert.equal(module.exports.t('common.close'), '閉じる');
   language = 'en';
@@ -42,7 +42,7 @@ test('runtime translator follows the Obsidian language without relying on browse
 });
 
 test('all static translation calls refer to dictionary entries', () => {
-  for (const name of fs.readdirSync(require('node:path').join(__dirname, '../src'))) {
+  for (const name of fs.readdirSync(require('node:path').join(__dirname, '../src'), { recursive: true })) {
     if (!name.endsWith('.js')) continue;
     const source = fs.readFileSync(require.resolve('../src/' + name), 'utf8');
     for (const match of source.matchAll(/\bt\(['"]([^'"]+)['"]/g))
@@ -71,11 +71,11 @@ function settingsFixture(language) {
   const container = { empty() {}, createEl(tag, options) { headings.push(options.text); } };
   class PluginSettingTab { constructor() { this.containerEl = container; } }
   const module = { exports: {} };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../src/settings-tab'), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/settings/settings-tab'), 'utf8'), {
     module, require: id => id === 'obsidian' ? { PluginSettingTab, Setting, Notice: class { constructor(text) { notices.push(text); } } }
-      : id === './i18n' ? { t: createTranslator(language) } : require('../src/' + id.replace('./', '')),
+      : id.endsWith('/i18n') ? { t: createTranslator(language) } : require('node:module').createRequire(require.resolve('../src/settings/settings-tab'))(id),
   });
-  const state = require('../src/plugin-settings').loadSettings({ orphanAllowedFolder: '未分類', tagStopWords: ['固有の語'],
+  const state = require('../src/settings/plugin-settings').loadSettings({ orphanAllowedFolder: '未分類', tagStopWords: ['固有の語'],
     pendingImport: { mainNotePath: '資料/元ノート.md', paths: [] } });
   let appearanceUpdates = 0;
   const plugin = { state, applyWindowAppearance() { appearanceUpdates++; }, saveData: async () => {}, scheduleMaint() {}, resetWindowPositions: async () => {},
@@ -102,7 +102,7 @@ test('settings render in either language while stored folders, words and keys re
 });
 
 test('common appearance controls apply immediately, survive reload and reset without moving saved windows', async () => {
-  const { loadSettings, resetUserSettings } = require('../src/plugin-settings');
+  const { loadSettings, resetUserSettings } = require('../src/settings/plugin-settings');
   const f = settingsFixture('ja');
   await f.controls[0].change('120');
   await f.controls[1].change('70');
@@ -121,7 +121,7 @@ test('common appearance controls apply immediately, survive reload and reset wit
 });
 
 test('minimum height is independently saved, accepts no minimum and restores its default', async () => {
-  const { loadSettings, resetUserSettings } = require('../src/plugin-settings');
+  const { loadSettings, resetUserSettings } = require('../src/settings/plugin-settings');
   const f = settingsFixture('en');
   assert.ok(f.names.includes('Minimum height'));
   await f.controls[3].change('160');
@@ -139,7 +139,7 @@ test('minimum height is independently saved, accepts no minimum and restores its
 });
 
 test('minimum width is independent from the saved window width and survives reload', async () => {
-  const { loadSettings, resetUserSettings } = require('../src/plugin-settings');
+  const { loadSettings, resetUserSettings } = require('../src/settings/plugin-settings');
   const f = settingsFixture('en');
   assert.ok(f.names.includes('Minimum width'));
   assert.ok(f.names.includes('Window width'));

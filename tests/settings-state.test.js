@@ -1,8 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { loadSettings, setFolder, resetUserSettings, DEFAULT_FOLDERS } = require('../src/plugin-settings');
-const { createFilePredicates } = require('../src/file-utils');
-const { readNoteMetadata, propertyLinkTargets } = require('../src/note-metadata');
+const { loadSettings, setFolder, resetUserSettings, DEFAULT_FOLDERS } = require('../src/settings/plugin-settings');
+const { createFilePredicates } = require('../src/files/file-utils');
+const { readNoteMetadata, propertyLinkTargets } = require('../src/shared/note-metadata');
 const { loadSource } = require('./helpers/load-source');
 
 test('independent settings do not share folder state, and update/reset preserve consumer references', () => {
@@ -53,7 +53,7 @@ test('retired settings are not migrated and explicit current colors remain uncha
 
 test('Base creation uses the latest instance folder after settings change', async () => {
   let offered, created = false;
-  const Workflow = loadSource('base-workflow', {
+  const Workflow = loadSource('bases/base-workflow', {
     obsidian: { Notice: class {}, getAllTags: cache => cache.tags },
     './base-modal': {
       BaseNameModal: class { async waitForValue() { return 'Group'; } },

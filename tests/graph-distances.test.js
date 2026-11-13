@@ -1,10 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { measureGraphDistances, updateGraphDistances } = require('../src/graph-distances');
-const { analyzeDistanceAreas } = require('../src/distance-area-analysis');
-const { areaSelection } = require('../src/area-model');
-const { diagnoseAreaPlanarity } = require('../src/graph-analysis');
-const { combinedAreaCategory, combinedAreaColors, combinedAreaMeanDegree } = require('../src/combined-area-style');
+const { measureGraphDistances, updateGraphDistances } = require('../src/graph/graph-distances');
+const { analyzeDistanceAreas } = require('../src/graph/distance-area-analysis');
+const { areaSelection } = require('../src/graph/area-model');
+const { diagnoseAreaPlanarity } = require('../src/graph/graph-analysis');
+const { combinedAreaCategory, combinedAreaColors, combinedAreaMeanDegree } = require('../src/analysis/combined-area-style');
 
 test('incremental hops agree with full calculation after changes to edges and vertices', async () => {
   const tick = async () => {};

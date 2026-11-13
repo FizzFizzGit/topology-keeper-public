@@ -5,12 +5,26 @@
 | 場所 | 内容 |
 | --- | --- |
 | ルート | README、ライセンス、npm・Obsidian・Gitの設定、バッチの入口 |
-| `src/` | JS・CSSの編集用ソース |
+| `src/` | プラグインの起動口 `main.js`、共通CSS、機能別ソース |
 | `scripts/` | ビルド・配置・配布・検証のスクリプト |
 | `docs/` | 仕様・設計・開発記録 |
 | `docs/development/measurements/` | ベンチマークのJSONL生データ |
 | `output/` | PDF等の成果物と検証ログ。Git管理対象外 |
 | `tests/` | 自動テストとその補助 |
+
+## ソースの構成
+
+| ディレクトリ | 担当 |
+| --- | --- |
+| `src/graph/` | Vaultに依存しない最短ホップ・境界票・平面性・エリア構築 |
+| `src/analysis/` | Vaultからのグラフ取得、分析の実行・保存、孤立チェックと結果表示 |
+| `src/graph-view/` | 部分グラフと標準グラフの表示・操作 |
+| `src/windows/` | ウィンドウの管理、共通部品、独立デモで使う窓の部品 |
+| `src/tags/` | タグの役割評価、タグ提案と候補キャッシュ |
+| `src/files/` | 外部ファイル、画像、取り込み・復旧 |
+| `src/bases/` | Basesの作成と管理 |
+| `src/web-thumbnail/` | Webページ撮影、画像処理とノートへの挿入 |
+| `src/settings/`、`src/i18n/`、`src/shared/` | 設定、翻訳、機能間で使う共通処理 |
 
 ## ビルドと配置
 

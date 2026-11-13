@@ -1,4 +1,5 @@
-const { buildAdjacency, findNonPlanar } = require('../src/graph-analysis');
+const { buildAdjacency } = require('../src/analysis/vault-graph');
+const { findNonPlanar } = require('../src/graph');
 
 async function inspect({ name, tags, bridges = [], tagOnly = false }) {
   const files = Array.from({ length: tags.length * 5 }, (_, i) => ({ path: `group${Math.floor(i / 5)}/note${i % 5}.md` }));

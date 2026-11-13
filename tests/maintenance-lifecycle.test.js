@@ -2,21 +2,24 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { loadSource } = require('./helpers/load-source');
 
-function fixture(graph = new Map(), distanceAnalysis) {
+function fixture(graph = new Map(), distanceAnalysis, clock = performance) {
   let renders = 0, scans = 0, builds = 0, finishAnalysis;
   let notifyReady;
   const ready = new Promise(resolve => { notifyReady = resolve; });
   const timers = new Map();
-  const Workflow = loadSource('maintenance-workflow', {
+  const DistanceAnalysisRun = loadSource('analysis/distance-analysis-run', distanceAnalysis ? {
+    '../graph': {
+      ...require('../src/graph'), analyzeDistanceAreas: distanceAnalysis,
+    },
+  } : {}, { performance: clock });
+  const Workflow = loadSource('analysis/maintenance-workflow', {
     obsidian: { Notice: class {} },
-    './graph-analysis': { buildAdjacency: () => { builds++; return graph; },
-      findNonPlanar: () => new Promise(resolve => { finishAnalysis = resolve; notifyReady(); }) },
-    './tag-role': { assessTagRoles: async () => new Map() },
-    './area-model': { buildAreaHierarchy: async () => ({ combinedAreas: [] }) },
-    ...(distanceAnalysis ? { './distance-area-analysis': {
-      ...require('../src/distance-area-analysis'), analyzeDistanceAreas: distanceAnalysis,
-    } } : {}),
-  }, { performance,
+    './distance-analysis-run': DistanceAnalysisRun,
+    './vault-graph': { buildAdjacency: () => { builds++; return typeof graph === 'function' ? graph() : graph; } },
+    '../graph/graph-analysis': { findNonPlanar: () => new Promise(resolve => { finishAnalysis = resolve; notifyReady(); }) },
+    '../tags/tag-role': { assessTagRoles: async () => new Map() },
+    '../graph/area-model': { buildAreaHierarchy: async () => ({ combinedAreas: [] }) },
+  }, { performance: clock,
     setTimeout: resolve => { const id = {}; timers.set(id, resolve); return id; },
     clearTimeout: id => timers.delete(id),
   });
@@ -46,6 +49,80 @@ test('automatic startup checks leave graph analysis idle until the analysis wind
   assert.equal(f.builds(), 1);
 });
 
+test('confirmed distance analysis runs past the former vertex and time limits', async () => {
+  const { analyzeDistanceAreas } = require('../src/graph/distance-area-analysis');
+  const graph = new Map(Array.from({ length: 1025 }, (_, i) => [`note-${i}.md`, new Set()]));
+  let now = 0;
+  const f = fixture(graph, (...args) => {
+    now = 121_000;
+    return analyzeDistanceAreas(...args);
+  }, { now: () => now });
+  f.workflow.wait = async () => {};
+  await f.workflow.refreshVisible();
+  await f.workflow.recheckAnalysis();
+  assert.equal(f.plugin.maint.result.distanceAnalysis.requiresConfirmation, true);
+  await f.workflow.runDistanceAnalysis({ confirmed: true });
+  assert.equal(f.plugin.maint.result.distanceAnalysis.table.nodes.length, graph.size);
+  assert.ok(f.plugin.state.distanceAnalysisCache);
+});
+
+test('cancelling a distance analysis retains the snapshot and allows another run immediately', async () => {
+  const { analyzeDistanceAreas } = require('../src/graph/distance-area-analysis');
+  let graph = new Map([['a.md', new Set()]]);
+  let resume;
+  const f = fixture(() => graph, (current, tick, previous) => {
+    if (resume || current.size === 1) return analyzeDistanceAreas(current, tick, previous);
+    return new Promise(resolve => { resume = () => resolve(analyzeDistanceAreas(current, tick, previous)); });
+  });
+  await f.workflow.refreshVisible();
+  await f.workflow.recheckAnalysis();
+  const previous = f.plugin.maint.result.distanceAnalysis;
+  const saved = f.plugin.state.distanceAnalysisCache;
+  graph = new Map([...graph, ['b.md', new Set()]]);
+  const cancelled = f.workflow.recheckAnalysis();
+  f.workflow.cancelDistanceAnalysis();
+  assert.equal(f.plugin.maint.result.distanceAnalysis.model, previous.model);
+  assert.equal(f.plugin.state.distanceAnalysisCache, saved);
+  await f.workflow.recheckAnalysis();
+  const latest = f.plugin.maint.result.distanceAnalysis;
+  assert.equal(latest.table.nodes.length, 2);
+  resume();
+  await cancelled;
+  assert.equal(f.plugin.maint.result.distanceAnalysis, latest);
+});
+
+test('slow distance analysis reveals progress after one second and updates votes without redrawing', async () => {
+  let now = 0, callbacks, finish;
+  const hold = new Promise(resolve => { finish = resolve; });
+  const f = fixture(new Map([['a.md', new Set()]]), async (graph, tick, previous, phase, votes) => {
+    callbacks = { tick, phase, votes };
+    await hold;
+    return require('../src/graph/distance-area-analysis').analyzeDistanceAreas(graph, tick, previous);
+  }, { now: () => now });
+  f.workflow.makeTicker = () => async () => {};
+  const updates = [];
+  f.plugin.detailView.updateDistanceProgress = value => updates.push(value);
+  await f.workflow.refreshVisible();
+  const running = f.workflow.recheckAnalysis();
+  assert.equal(f.plugin.maint.result.distanceAnalysis.showProgress, false);
+  const { tick, phase, votes } = callbacks;
+  phase('votes');
+  votes(0.25);
+  now = 1000;
+  await tick();
+  assert.equal(f.plugin.maint.result.distanceAnalysis.showProgress, true);
+  assert.equal(f.plugin.maint.result.distanceAnalysis.voteProgress, 0.25);
+  const renders = f.renders();
+  votes(0.5);
+  now = 1200;
+  await tick();
+  assert.equal(f.renders(), renders);
+  assert.deepEqual(updates, [0.5]);
+  finish();
+  await running;
+  assert.equal(f.plugin.maint.result.distanceAnalysis.showProgress, undefined);
+});
+
 test('the analysis refresh button runs distance analysis even before a result exists', async () => {
   const graph = new Map([['a.md', new Set(['b.md'])], ['b.md', new Set(['a.md'])]]);
   const f = fixture(graph);
@@ -55,6 +132,21 @@ test('the analysis refresh button runs distance analysis even before a result ex
   assert.equal(f.plugin.maint.result.planar, null);
   assert.equal(f.workflow.distanceGraph, graph);
   assert.deepEqual(f.plugin.maint.result.distanceAnalysis.model.parents[0].nodes, ['a.md', 'b.md']);
+});
+
+test('manual refresh gives feedback when it reuses an unchanged distance result', async () => {
+  const graph = new Map([['a.md', new Set()]]);
+  const f = fixture(graph, undefined, { now: () => 0 });
+  await f.workflow.refreshVisible();
+  await f.workflow.runDistanceAnalysis();
+  const result = f.plugin.maint.result.distanceAnalysis;
+  await f.workflow.recheckAnalysis();
+  assert.equal(f.plugin.maint.result.distanceAnalysis, result);
+  assert.ok(f.workflow.analysisRefresh);
+  assert.equal(f.timers.size, 1);
+  for (const resolve of f.timers.values()) resolve();
+  await Promise.resolve();
+  assert.equal(f.workflow.analysisRefresh, null);
 });
 
 test('a completed distance snapshot opens without a graph scan and remains available if recalculation fails', async () => {
@@ -76,6 +168,9 @@ test('a completed distance snapshot opens without a graph scan and remains avail
   restarted.plugin.detailView.visible = true;
   await restarted.workflow.openAnalysis();
   assert.equal(restarted.builds(), 0);
+  await restarted.workflow.recheckAnalysis();
+  assert.equal(previous, undefined);
+  graph.set('c.md', new Set());
   const pending = restarted.workflow.recheckAnalysis();
   assert.equal(previous.table.distance('a.md', 'b.md'), 1);
   assert.equal(previous.graph, restarted.workflow.distanceGraph);
@@ -85,6 +180,33 @@ test('a completed distance snapshot opens without a graph scan and remains avail
   await pending;
   assert.ok(restarted.plugin.maint.result.distanceAnalysis.model);
   assert.equal(restarted.plugin.state.distanceAnalysisCache, saved);
+});
+
+test('clearing distance analysis persists deletion and the next run starts without a distance table', async () => {
+  const { analyzeDistanceAreas } = require('../src/graph/distance-area-analysis');
+  const graph = new Map([['a.md', new Set()]]);
+  const inputs = [];
+  const f = fixture(graph, (current, tick, previous) => {
+    inputs.push(previous);
+    return analyzeDistanceAreas(current, tick, previous);
+  });
+  let persisted;
+  f.plugin.saveData = async state => { persisted = JSON.parse(JSON.stringify(state)); };
+  await f.workflow.refreshVisible();
+  await f.workflow.recheckAnalysis();
+  assert.ok(persisted.distanceAnalysisCache);
+  f.plugin.maint.selectedCluster = { distanceAnalysis: true };
+
+  await f.workflow.clearDistanceAnalysis();
+  assert.equal(persisted.distanceAnalysisCache, undefined);
+  assert.equal(f.plugin.maint.result.distanceAnalysis, undefined);
+  assert.equal(f.plugin.maint.selectedCluster, null);
+  await f.workflow.restoreDistanceAnalysis();
+  await f.workflow.recheckAnalysis();
+  assert.equal(inputs.length, 2);
+  assert.equal(inputs[1].table, undefined);
+  assert.equal(inputs[1].graph, null);
+  assert.ok(persisted.distanceAnalysisCache);
 });
 
 test('cancel stops both isolation animation waits and prevents late view updates', async () => {

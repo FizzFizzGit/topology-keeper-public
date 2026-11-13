@@ -7,21 +7,22 @@ not a published package. Storage keys and analysis algorithms remain unchanged.
 
 | Layer / 層 | Modules | Owns / 責務 |
 | --- | --- | --- |
-| Portable window / 汎用の窓 | `src/portable-window.js`, `.css` | Frame, dragging, viewport constraints, appearance variables, cleanup / 枠・移動・画面内補正・表示変数・解除 |
-| Portable help / 汎用の説明 | `src/info-content.js`, `src/info-popover.js` | Text-only formatting and popover interaction / 説明文の書式と開閉・配置・タイマー解除 |
-| App settings / アプリ設定 | `src/window-appearance.js` | Defaults, dropdown definitions, saved-value normalization / 初期値・選択肢・保存値の正規化 |
-| Settings persistence / 設定保存 | `src/settings-persistence.js` | Ordered JSON snapshots and save-failure reporting / 呼び出し時のJSONの写しを順次保存・失敗通知 |
-| Settings UI / 設定画面 | `src/window-settings.js` | Controls, live application, save requests / 設定項目・即時反映・保存要求 |
-| Help content / 説明内容 | `src/section-help.js` | Translated content selection / 翻訳済み説明の選択 |
-| Isolation content / 孤立の本文 | `src/isolation-content.js` | Read-only ordinary-note list and generated-data maintenance controls / 通常ノートの一覧と生成データ管理 |
-| Analysis content / 分析の本文 | `src/analysis-content.js` | Analysis lists, expansion state, connection references and graph selection requests / 分析一覧・展開状態・接続参照・グラフ選択要求 |
-| Analysis presentation / 分析の表示データ | `src/analysis-presentation.js` | Localized titles, parent lookup and actual connection destinations / 翻訳済みタイトル・親索引・実際の接続先 |
-| Host views / 利用側の窓 | `src/main-window.js`, `src/detail-window.js` | App-specific content and window state / 内容・開閉・位置のアプリ状態 |
-| Host wiring / 操作口の接続 | `src/window-host.js` | Construct view APIs from live plugin state / 最新のプラグイン状態と各ビューの接続 |
-| View state / 表示状態 | `src/view-state.js`, `src/deferred-refresh.js` | Indicator values and cancellable deferred refresh / 表示件数と解除可能な再描画予約 |
-| Graph selection and layout / グラフの抽出・配置 | `src/graph-selection.js`, `src/graph-layout.js`, `src/graph-geometry.js` | Pure graph selection, initial layout and geometry / 表示対象・初期配置・幾何計算 |
-| Graph host and interaction / グラフの窓・操作 | `src/graph-window-position.js`, `src/graph-interaction.js`, `src/graph-view.js` | Position persistence, input lifecycle, SVG composition / 位置保存・操作の寿命・SVG表示の組み立て |
-| Obsidian adapter / Obsidian連携 | `src/main.js`, `src/settings-tab.js` | Vault operations, persistence and lifecycle / Vault操作・保存・プラグインの寿命 |
+| Portable window / 汎用の窓 | `src/windows/portable-window.js`, `.css` | Frame, dragging, viewport constraints, appearance variables, cleanup / 枠・移動・画面内補正・表示変数・解除 |
+| Portable help / 汎用の説明 | `src/windows/info-content.js`, `src/windows/info-popover.js` | Text-only formatting and popover interaction / 説明文の書式と開閉・配置・タイマー解除 |
+| App settings / アプリ設定 | `src/settings/window-appearance.js` | Defaults, dropdown definitions, saved-value normalization / 初期値・選択肢・保存値の正規化 |
+| Settings persistence / 設定保存 | `src/settings/settings-persistence.js` | Ordered JSON snapshots and save-failure reporting / 呼び出し時のJSONの写しを順次保存・失敗通知 |
+| Settings UI / 設定画面 | `src/settings/window-settings.js` | Controls, live application, save requests / 設定項目・即時反映・保存要求 |
+| Help content / 説明内容 | `src/windows/section-help.js` | Translated content selection / 翻訳済み説明の選択 |
+| Isolation content / 孤立の本文 | `src/analysis/isolation-content.js` | Read-only ordinary-note list and generated-data maintenance controls / 通常ノートの一覧と生成データ管理 |
+| Analysis content / 分析の本文 | `src/analysis/analysis-content.js` | Analysis lists, expansion state, connection references and graph selection requests / 分析一覧・展開状態・接続参照・グラフ選択要求 |
+| Analysis presentation / 分析の表示データ | `src/analysis/analysis-presentation.js` | Localized titles, parent lookup and actual connection destinations / 翻訳済みタイトル・親索引・実際の接続先 |
+| Host views / 利用側の窓 | `src/windows/main-window.js`, `src/windows/detail-window.js` | App-specific content and window state / 内容・開閉・位置のアプリ状態 |
+| Window host / 窓の管理 | `WindowHost` in `src/windows/window-host.js` | Owns the views, sidebar placement, pointer hold and cleanup / 各窓の生成・サイドパネル配置・押下中の描画保留・終了処理 |
+| View state / 表示状態 | `src/windows/view-state.js`, `src/windows/deferred-refresh.js` | Indicator values and cancellable deferred refresh / 表示件数と解除可能な再描画予約 |
+| Graph selection and layout / グラフの抽出・配置 | `src/graph-view/graph-selection.js`, `src/graph-view/graph-layout.js`, `src/graph-view/graph-geometry.js` | Pure graph selection, initial layout and geometry / 表示対象・初期配置・幾何計算 |
+| Graph host and interaction / グラフの窓・操作 | `PartialGraphWindow` in `src/graph-view/graph-view.js`, `src/graph-view/graph-window-position.js`, `src/graph-view/graph-interaction.js` | Graph panel lifecycle, position persistence, interaction and SVG composition / 部分グラフ窓の開閉・位置保存・操作の解除・SVG描画 |
+| Tag suggestion / タグ提案 | `TagSuggestionWorkflow` in `src/tags/tag-suggestion-workflow.js` | Cache invalidation, suggestion dialog and applying selected tags / キャッシュの無効化・提案画面・選択タグの反映 |
+| Obsidian adapter / Obsidian連携 | `src/main.js`, `src/settings/settings-tab.js` | Vault operations, persistence and lifecycle / Vault操作・保存・プラグインの寿命 |
 
 ## Reusing the window / 窓の再利用
 

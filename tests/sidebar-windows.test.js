@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { loadSource } = require('./helpers/load-source');
-const { loadSettings } = require('../src/plugin-settings');
+const { loadSettings } = require('../src/settings/plugin-settings');
 
 function element() {
   const classes = new Set();
@@ -39,7 +39,7 @@ function fixture() {
   const plugin = { manifest: { id: 'topology-keeper' }, app: { workspace },
     state: loadSettings({ windowPlacement: { planar: 'left' } }),
     registerView: (type, create) => views.set(type, create) };
-  const { SidebarWindows } = loadSource('sidebar-windows', { obsidian: {
+  const { SidebarWindows } = loadSource('windows/sidebar-windows', { obsidian: {
     ItemView: class { constructor() { this.contentEl = element(); } },
     Notice: class { constructor(message) { throw new Error(message); } },
   } });

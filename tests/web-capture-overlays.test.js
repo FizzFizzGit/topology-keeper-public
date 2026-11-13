@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
-const { HIDE_CAPTURE_OVERLAYS_SCRIPT } = require('../src/web-capture-overlays');
+const { HIDE_CAPTURE_OVERLAYS_SCRIPT } = require('../src/web-thumbnail/web-capture-overlays');
 
 test('capture hides large ad and modal layers while preserving page content and game canvas', () => {
   const element = ({ position = 'fixed', id = '', role, dialog = false, canvas = false, small = false } = {}) => ({

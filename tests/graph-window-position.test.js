@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const { loadSettings } = require('../src/plugin-settings');
+const { loadSettings } = require('../src/settings/plugin-settings');
 
 function fixture(saved = {}) {
   const doc = new EventTarget();
@@ -10,13 +10,13 @@ function fixture(saved = {}) {
   let resized;
   let disconnected = false;
   const context = { module: { exports: {} }, document: doc, window: win, setTimeout, clearTimeout,
-    require: id => id === './i18n' ? { t: require('../src/i18n-core').createTranslator('ja') } : id === 'obsidian' ? { setIcon() {} } : require('../src/' + id.replace('./', '')),
+    require: id => id.endsWith('/i18n') ? { t: require('../src/i18n/i18n-core').createTranslator('ja') } : id === 'obsidian' ? { setIcon() {} } : require('node:module').createRequire(require.resolve('../src/graph-view/graph-window-position'))(id),
     ResizeObserver: class {
       constructor(callback) { resized = callback; }
       observe() {}
       disconnect() { disconnected = true; }
     } };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../src/graph-window-position'), 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/graph-view/graph-window-position'), 'utf8'), context);
   const head = new EventTarget();
   const panel = {
     style: { left: '48px', top: '32px' },

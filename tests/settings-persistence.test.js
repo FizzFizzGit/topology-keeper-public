@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { SettingsPersistence } = require('../src/settings-persistence');
+const { SettingsPersistence } = require('../src/settings/settings-persistence');
 const { loadSource } = require('./helpers/load-source');
 
 test('queued saves keep call-time snapshots and wait for the previous write', async () => {
@@ -36,7 +36,7 @@ test('write and serialization failures are reported, reject to the caller, and d
 });
 
 test('completed import record cannot reappear in a concurrent settings save; failed clearing restores it', async () => {
-  const Import = loadSource('import-workflow', { obsidian: {}, './base-modal': {} });
+  const Import = loadSource('files/import-workflow', { obsidian: {}, '../bases/base-modal': {} });
   const writes = []; let release;
   const queue = new SettingsPersistence(async data => {
     writes.push(data);

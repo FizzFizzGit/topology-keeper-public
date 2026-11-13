@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { attachDrag, detachDrag, constrain, applyAppearance, createFrame, createWindow, createWindowStack } = require('../src/portable-window');
+const { attachDrag, detachDrag, constrain, applyAppearance, createFrame, createWindow, createWindowStack } = require('../src/windows/portable-window');
 class Events {
   constructor() { this.handlers = new Map(); }
   addEventListener(name, fn) { if (!this.handlers.has(name)) this.handlers.set(name, new Set()); this.handlers.get(name).add(fn); }

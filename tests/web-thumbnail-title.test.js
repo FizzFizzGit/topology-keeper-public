@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { titleLines, addThumbnailTitle } = require('../src/web-thumbnail-title');
+const { titleLines, addThumbnailTitle } = require('../src/web-thumbnail/web-thumbnail-title');
 
 test('title wraps and ellipsizes within its available width without splitting emoji', () => {
   const context = { measureText: text => ({ width: Array.from(text).length * 8 }) };

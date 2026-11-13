@@ -1,6 +1,5 @@
-const { createWindowViews } = require('./window-host');
-const { SidebarWindows } = require('./sidebar-windows');
-const { SettingsPersistence } = require('./settings-persistence');
+const WindowHost = require('./windows/window-host');
+const { SettingsPersistence } = require('./settings/settings-persistence');
 const {
   Plugin,
   Notice,
@@ -8,32 +7,29 @@ const {
   debounce,
   getAllTags,
 } = require("obsidian");
-const { computeTagSuggestions, TagSuggestModal } = require("./tag-suggest");
-const { TagSuggestionCache } = require('./tag-suggest-cache');
-const { t } = require('./i18n');
-const { pageUrl, captureWebPage } = require('./web-page-capture');
-const { WebThumbnailModal } = require('./web-thumbnail-modal');
-const { WebThumbnailWorkflow } = require('./web-thumbnail-workflow');
-const { styleWebThumbnails } = require('./web-thumbnail-data');
-const { hideInfoPopover, disposeInfoPopover } = require('./info-popover');
-const { applyAppearance } = require('./portable-window');
-const TopologyKeeperSettingTab = require("./settings-tab");
-const ImportWorkflow = require("./import-workflow");
-const BaseWorkflow = require("./base-workflow");
-const { copyTextToClipboard } = require("./clipboard");
-const { inFolder, isImage, createFilePredicates } = require("./file-utils");
-const { CSS_CLASS } = require("./ui-constants");
-const { collectExternalEntries } = require("./external-file-data");
-const { filenameFromSource } = require("./source-url");
-const BaseManager = require("./base-manager");
-const ExternalFileActions = require("./external-file-actions");
-const ExternalImageEmbed = require("./external-image-embed");
-const { computeOrphans: detectOrphans } = require("./maintenance-check");
-const MaintenanceWorkflow = require("./maintenance-workflow");
+const TagSuggestionWorkflow = require('./tags/tag-suggestion-workflow');
+const { t } = require('./i18n/i18n');
+const { pageUrl, captureWebPage } = require('./web-thumbnail/web-page-capture');
+const { WebThumbnailModal } = require('./web-thumbnail/web-thumbnail-modal');
+const { WebThumbnailWorkflow } = require('./web-thumbnail/web-thumbnail-workflow');
+const { styleWebThumbnails } = require('./web-thumbnail/web-thumbnail-data');
+const TopologyKeeperSettingTab = require("./settings/settings-tab");
+const ImportWorkflow = require("./files/import-workflow");
+const BaseWorkflow = require("./bases/base-workflow");
+const { copyTextToClipboard } = require("./shared/clipboard");
+const { inFolder, isImage, createFilePredicates } = require("./files/file-utils");
+const { CSS_CLASS } = require("./shared/ui-constants");
+const { collectExternalEntries } = require("./files/external-file-data");
+const { filenameFromSource } = require("./files/source-url");
+const BaseManager = require("./bases/base-manager");
+const ExternalFileActions = require("./files/external-file-actions");
+const ExternalImageEmbed = require("./files/external-image-embed");
+const { computeOrphans: detectOrphans } = require("./analysis/maintenance-check");
+const MaintenanceWorkflow = require("./analysis/maintenance-workflow");
 const {
   CONFIG,
   loadSettings,
-} = require("./plugin-settings");
+} = require("./settings/plugin-settings");
 
 // 設定の正本はこのインスタンスのstate。既定値・正規化はplugin-settings.jsに集約する。
 
@@ -47,12 +43,7 @@ module.exports = class AssetLinksPanel extends Plugin {
   }
 
   async onload() {
-    this.tagSuggestionCache = new TagSuggestionCache();
-    const invalidateTagCorpus = () => this.tagSuggestionCache.invalidate();
-    for (const event of ['modify', 'create', 'delete', 'rename'])
-      this.registerEvent(this.app.vault.on(event, invalidateTagCorpus));
-    for (const event of ['changed', 'resolved'])
-      this.registerEvent(this.app.metadataCache.on(event, invalidateTagCorpus));
+    this.tagSuggestions = new TagSuggestionWorkflow(this);
     // 保存データ（Obsidian が Vault 内 `.obsidian/plugins/<プラグインID>/data.json` に JSON で保存したもの）。
     // 初回起動では null なので {} にする。項目の一覧は plugin-settings.js の loadSettings を参照。
     const s = (await this.loadData()) ?? {};
@@ -116,8 +107,7 @@ module.exports = class AssetLinksPanel extends Plugin {
       getAllTags,
       maxFindings: CONFIG.maxFindings,
     });
-    createWindowViews(this);
-    this.sidebars = new SidebarWindows(this);
+    this.windows = new WindowHost(this);
 
     this.refreshWin = debounce(
       () => {
@@ -142,78 +132,9 @@ module.exports = class AssetLinksPanel extends Plugin {
       this.externalImages.render(el, ctx),
     );
     this.registerMarkdownPostProcessor(element => styleWebThumbnails(element, this.state.webThumbnailFiles));
-    this.registerViewEvents();
-    this.registerPointerEvents();
+    this.windows.registerEvents();
     this.registerMaintenanceEvents();
     this.registerCommands();
-  }
-
-  // 共通の見た目だけを変更し、結果・スクロール位置・展開状態は保持する。
-  // CSS適用後の寸法で位置補正する。再分析・窓の再生成・自動保存は行わない。
-  applyWindowAppearance() {
-    for (const view of [this.mainView, this.detailView, this.orphanView]) {
-      if (!view?.el) continue;
-      applyAppearance(view.el, this.state.windowAppearance);
-      this.mainView.fitWindowToContent(view.el);
-      view.constrainToViewport();
-    }
-    // ポップオーバーはbody直下なので、窓からのCSS変数継承に頼らず反映する。
-    document.querySelectorAll('.alp-info-popover').forEach(element =>
-      applyAppearance(element, { fontScale: this.state.windowAppearance.fontScale }));
-  }
-
-  registerViewEvents() {
-    // 小窓の再描画（軽い）。refreshWin は現在のノートと保持済みの結果から描き直す。
-    this.registerEvent(
-      this.app.workspace.on("active-leaf-change", this.refreshWin),
-    );
-    this.registerEvent(this.app.workspace.on("file-open", this.refreshWin));
-    this.registerEvent(this.app.metadataCache.on("changed", this.refreshWin));
-  }
-
-  registerPointerEvents() {
-    // 説明ポップオーバーの外側を押したら閉じる。
-    this.registerDomEvent(document, "pointerdown", (event) => {
-      if (event.target.closest?.(".alp-info-popover, .alp-info-button")) return;
-      document
-        .querySelectorAll(".alp-info-popover:not([hidden])")
-        .forEach(hideInfoPopover);
-    });
-
-    // 小窓を押している間は再描画を保留する。
-    this.pointerHeldAt = 0;
-    const hold = (event) => {
-      if (event.target.closest?.(".alp-win, .alp-detail-win")) {
-        clearTimeout(this.pointerReleaseTimer);
-        this.pointerHeldAt = Date.now();
-      }
-    };
-    const release = () => {
-      if (!this.pointerHeldAt) return;
-      clearTimeout(this.pointerReleaseTimer);
-      // pointerup の直後にはまだ click が残っている。押したボタンが
-      // その前に描き直されると、ブラウザがクリックを届けられなくなる。
-      this.pointerReleaseTimer = setTimeout(() => {
-        this.pointerReleaseTimer = null;
-        this.pointerHeldAt = 0;
-        this.refreshWin();
-      }, 0);
-    };
-    this.registerDomEvent(document, "pointerdown", hold, true);
-    this.registerDomEvent(document, "pointerup", release, true);
-    this.registerDomEvent(document, "pointercancel", release, true);
-    this.registerDomEvent(window, "blur", release);
-
-    // Obsidian本体のウィンドウ縮小時に、小窓を表示範囲内へ補正する。
-    this.registerDomEvent(
-      window,
-      "resize",
-      debounce(() => {
-        this.mainView.constrainToViewport();
-        this.detailView.constrainToViewport();
-        this.orphanView.constrainToViewport();
-      }, 50),
-    );
   }
 
   registerMaintenanceEvents() {
@@ -242,13 +163,7 @@ module.exports = class AssetLinksPanel extends Plugin {
       this.layoutReady = true;
       void this.maintenance.restoreDistanceAnalysis();
       this.updateCurrent();
-      this.mainView.build();
-      if (this.state.areaWindowVisible) this.detailView.open();
-      if (this.state.orphanWindowVisible) this.orphanView.open();
-      for (const [kind, visible] of [['main', this.state.visible], ['planar', this.state.areaWindowVisible],
-        ['orphan', this.state.orphanWindowVisible], ['graph', false]]) {
-        if (!visible) this.app.workspace.detachLeavesOfType(this.sidebars.type(kind));
-      }
+      this.windows.restore();
       this.refreshBaseLabels();
       this.scheduleMaint();
     });
@@ -301,48 +216,46 @@ module.exports = class AssetLinksPanel extends Plugin {
       callback: () => this.maintenance.recheckAll(),
     });
     this.addCommand({
+      id: "clear-distance-analysis",
+      name: t("command.clearDistanceAnalysis"),
+      checkCallback: (checking) => {
+        if (!this.maintenance.canClearDistanceAnalysis()) return false;
+        if (!checking) {
+          void this.maintenance.clearDistanceAnalysis().then(cleared => {
+            if (cleared) new Notice(t("area.distanceCacheCleared"));
+          });
+        }
+        return true;
+      },
+    });
+    this.addCommand({
       id: "suggest-tags",
       name: t("command.suggestTags"),
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
         if (!file || file.extension !== "md" || this.files.isManaged(file)) return false;
-        if (!checking) this.suggestTags(file);
+        if (!checking) this.tagSuggestions.suggest(file);
         return true;
       },
     });
   }
 
-  async resetWindowPositions() {
-    this.mainView.resetPosition();
-    this.detailView.resetPosition();
-    this.orphanView.resetPosition();
-    await this.saveData(this.state);
-  }
+  get mainView() { return this.windows.mainView; }
+  get detailView() { return this.windows.detailView; }
+  get orphanView() { return this.windows.orphanView; }
+  get sidebars() { return this.windows.sidebars; }
 
-  applyWindowPlacement(kind) {
-    if (!this.layoutReady) return;
-    if (!kind || kind === 'main') this.mainView.applyVisibility();
-    if (!kind || kind === 'planar') this.detailView.syncPlacement();
-    if (!kind || kind === 'orphan') this.orphanView.syncPlacement();
-    if ((!kind || kind === 'graph') && this.maint.selectedCluster && this.detailView.visible) {
-      this.disposeGraphListeners();
-      this.detailView.render(true);
-    }
-  }
+  resetWindowPositions() { return this.windows.resetWindowPositions(); }
+  applyWindowPlacement(kind) { this.windows.applyWindowPlacement(kind); }
+  applyWindowAppearance() { this.windows.applyWindowAppearance(); }
 
   onunload() {
     this.layoutReady = false;
-    clearTimeout(this.pointerReleaseTimer);
     this.webThumbnails?.dispose();
-    this.tagSuggestionCache?.dispose();
+    this.tagSuggestions?.dispose();
     this.maintenance.cancel(); // 実行中の計算を中断
     this.uiStyleEl?.remove();
-    this.disposeGraphListeners();
-    this.sidebars?.dispose();
-    this.removeInfoPopovers();
-    this.mainView.dispose();
-    this.detailView.dispose();
-    this.orphanView.dispose();
+    this.windows.dispose();
     this.externalImages.dispose(); // キャッシュした画像の Blob URL を解放する
   }
 
@@ -405,21 +318,6 @@ module.exports = class AssetLinksPanel extends Plugin {
     });
   }
 
-  disposeGraphListeners() {
-    this.graphRevision = (this.graphRevision ?? 0) + 1;
-    try {
-      this.maint.graphCleanup?.();
-    } catch (_) {}
-    this.maint.graphCleanup = null;
-  }
-
-  removeInfoPopovers(owner) {
-    const selector = owner
-      ? `.alp-info-popover[data-owner="${owner}"]`
-      : ".alp-info-popover";
-    document.querySelectorAll(selector).forEach(tip => { disposeInfoPopover(tip); tip.remove(); });
-  }
-
   // 外部ファイル一覧と詳細窓が使う共通UI部品は MainWindowView に委譲する。
   // ファイルへの Obsidian 内部リンク "[[<Vault相対パス>]]" をクリップボードにコピーする。
   async copyInternalLink(file) {
@@ -438,32 +336,6 @@ module.exports = class AssetLinksPanel extends Plugin {
     const source =
       this.app.metadataCache.getFileCache(file)?.frontmatter?.source;
     return source ? filenameFromSource(source) : file.basename;
-  }
-
-  // ノートへのタグ提案を表示し、選ばれたタグをそのノートの frontmatter.tags に追加する。
-  //   入力 file: タグを付けたい通常ノートの TFile。提案は computeTagSuggestions（tag-suggest.js）が作る。
-  //   モーダルから返る picked: 選ばれたタグ名の配列（"#" なし。空配列なら何もしない）。
-  //   出力: file の frontmatter.tags を、既存のタグ＋picked（重複なし）の配列に書き換える。
-  //         既存の tags が文字列（"a, b" や "a b" のようなカンマ・空白区切り）でも、配列に直してから足す。
-  //         "#" は付けない（frontmatter の tags には、通常 "#" なしのタグ名を書く）。本文は変更しない。
-  async suggestTags(file) {
-      const items = await computeTagSuggestions(
-        this.app,
-        file,
-        this.files.isManaged,
-        this.state.tagStopWords,
-        this.tagSuggestionCache,
-      );
-      if (!items.length) { new Notice(t("tags.none")); return; }
-      new TagSuggestModal(this.app, file, items, async (picked) => {
-          if (!picked.length) return;
-          await this.app.fileManager.processFrontMatter(file, (fm) => {
-              const cur = Array.isArray(fm.tags) ? fm.tags
-                  : (fm.tags ? String(fm.tags).split(/[,\s]+/).filter(Boolean) : []);
-              fm.tags = [...new Set([...cur, ...picked])];
-          });
-          new Notice(t('tags.added', { count: picked.length }));
-      }).open();
   }
 
 };

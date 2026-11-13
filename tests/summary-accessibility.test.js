@@ -27,21 +27,21 @@ function load(name, document = { body: new Element('body') }, language = 'ja') {
   const context = { module: { exports: {} }, document,
     require: id => {
       if (id === 'obsidian') return { setIcon() {}, setTooltip() {} };
-      if (id === './i18n') return { t: require('../src/i18n-core').createTranslator(language) };
+      if (id.endsWith('/i18n')) return { t: require('../src/i18n/i18n-core').createTranslator(language) };
       if (id === './hover-menu') return { closeActiveHoverMenu() {} };
-      return require('../src/' + id.replace('./', ''));
+      return require('node:module').createRequire(require.resolve('../src/' + name))(id);
     } };
   vm.runInNewContext(fs.readFileSync(require.resolve('../src/' + name), 'utf8'), context);
   return context.module.exports;
 }
 test('section and area controls are outside summaries and remain visible when collapsed', () => {
-  const Main = load('main-window');
+  const Main = load('windows/main-window');
   const main = new Main({ state: { sections: {} }, EVENT: {}, CSS_CLASS: {}, ICON: {}, UI_TEXT: {} });
   const parent = new Element('div');
   const section = main.section(parent, 'assets', 'リンクファイル');
   assert.equal(section.sectionActions.parent, section.parent);
   assert.equal(section.sectionActions.querySelector('button').tag, 'button');
-  const Detail = load('detail-window');
+  const Detail = load('windows/detail-window');
   const detail = new Detail({ CSS_CLASS: {}, ICON: {}, EVENT: {} });
   detail.analysisContent.createAreaRow(section, { nodes: ['a', 'b', 'c'] }, 'planar', 0, 'blue');
   const area = section.querySelector('details');
@@ -64,8 +64,23 @@ test('section and area controls are outside summaries and remain visible when co
   assert.equal(closed, true);
 });
 
+test('distance analysis places its cancel action alongside the progress bar', () => {
+  const Detail = load('windows/detail-window');
+  let cancelled = false;
+  const detail = new Detail({ CSS_CLASS: {}, ICON: {}, EVENT: {},
+    cancelDistanceAnalysis: () => { cancelled = true; } });
+  const body = new Element('div');
+  detail.analysisContent.renderDistanceAreas(body, {
+    running: true, showProgress: true, phase: 'votes', voteProgress: 0.5,
+  });
+  const controls = body.querySelector('.alp-distance-controls');
+  assert.equal(controls.querySelector('progress').value, 0.5);
+  controls.querySelector('button').listeners.click();
+  assert.equal(cancelled, true);
+});
+
 test('current hierarchy opens exact tag evidence and clears vanished selections', async () => {
-  const { buildAreaHierarchy } = require('../src/area-model');
+  const { buildAreaHierarchy } = require('../src/graph/area-model');
   const graph = new Map();
   const edge = (a, b) => {
     for (const node of [a, b]) if (!graph.has(node)) graph.set(node, new Set());
@@ -77,13 +92,13 @@ test('current hierarchy opens exact tag evidence and clears vanished selections'
   }
   const planar = { safe: [], definite: [], suspect: [], remainder: [{ nodes: [...graph.keys()], links: [], density: 0.5, meanLocalDensity: 0.5 }] };
   const model = await buildAreaHierarchy(graph, planar, async () => {});
-  const Main = load('main-window');
+  const Main = load('windows/main-window');
   const main = new Main({ state: { sections: {} }, EVENT: {}, CSS_CLASS: {}, ICON: {}, UI_TEXT: {} });
-  const roles = await require('../src/tag-role').assessTagRoles(graph, async () => {});
+  const roles = await require('../src/tags/tag-role').assessTagRoles(graph, async () => {});
   for (const combined of model.combinedAreas) combined.tagRole = roles.get(combined.tag);
   let selected = null;
   const rendered = [];
-  const Detail = load('detail-window');
+  const Detail = load('windows/detail-window');
   const detail = new Detail({ CSS_CLASS: {}, ICON: {}, EVENT: { click: 'click' },
     section: main.section.bind(main), getAreaColors: () => ({ planar: 'blue' }), nodeChip() {},
     getSelectedCluster: () => selected, setSelectedCluster: value => { selected = value; },
@@ -109,7 +124,7 @@ test('current hierarchy opens exact tag evidence and clears vanished selections'
 });
 
 test('the distance experiment opens its area and combined graph in its own analysis section', async () => {
-  const { analyzeDistanceAreas } = require('../src/distance-area-analysis');
+  const { analyzeDistanceAreas } = require('../src/graph/distance-area-analysis');
   const graph = new Map([
     ['diary', new Set(['exercise', '#jobs'])],
     ['exercise', new Set(['diary'])],
@@ -118,9 +133,9 @@ test('the distance experiment opens its area and combined graph in its own analy
     ['#jobs', new Set(['diary', 'job', 'trivia'])],
   ]);
   const distanceAnalysis = await analyzeDistanceAreas(graph, async () => {});
-  const Main = load('main-window');
-  const main = new Main({ state: { sections: { distanceAreas: true } }, EVENT: {}, CSS_CLASS: {}, ICON: {}, UI_TEXT: {} });
-  const Detail = load('detail-window');
+  const Main = load('windows/main-window');
+  const main = new Main({ state: { sections: { distanceAreas: false } }, EVENT: {}, CSS_CLASS: {}, ICON: {}, UI_TEXT: {} });
+  const Detail = load('windows/detail-window');
   let selected, rendered;
   const detail = new Detail({ CSS_CLASS: {}, ICON: {}, EVENT: { click: 'click' },
     section: main.section.bind(main), getAreaColors: () => ({ densePlanar: '#dd9944', planar: '#8e72cc', nonplanar: '#ad4861', undetermined: '#667788' }), nodeChip() {},
@@ -132,7 +147,9 @@ test('the distance experiment opens its area and combined graph in its own analy
   const body = new Element('div');
   detail.renderPlanar(body, result);
   const section = walk(body).find(element => element.dataset.sectionKey === 'distanceAreas');
-  assert.equal(section.open, true);
+  assert.equal(section.tag, 'section');
+  assert.equal(section.children[0].tag, 'h3');
+  assert.equal(section.children[0].children[0].options.text, 'エリア');
   assert.ok(!walk(section).some(element => element.tag === 'button' && element.options.text === '距離エリアを再計算'));
   assert.ok(!walk(body).some(element => element.dataset.sectionKey === 'planar'));
   const area = walk(section).find(element => element.options.cls === 'alp-finding is-distance');
@@ -154,15 +171,15 @@ test('the distance experiment opens its area and combined graph in its own analy
 });
 
 test('current hierarchy retains density and planarity classifications without an old-format heading', async () => {
-  const { buildAreaHierarchy } = require('../src/area-model');
+  const { buildAreaHierarchy } = require('../src/graph/area-model');
   const graph = new Map([['a', new Set(['b', 'c'])], ['b', new Set(['a', 'c'])], ['c', new Set(['a', 'b'])]]);
   const finding = { nodes: ['a', 'b', 'c'], links: [['a', 'b'], ['a', 'c'], ['b', 'c']], linkDensity: 1, density: 1, edges: 3 };
   const planar = { safe: [finding], definite: [{ ...finding, edgeBoundExceeded: true }], suspect: [],
     remainder: [finding] };
   const model = await buildAreaHierarchy(graph, planar, async () => {});
-  const Main = load('main-window');
+  const Main = load('windows/main-window');
   const main = new Main({ state: { sections: {} }, EVENT: {}, CSS_CLASS: {}, ICON: {}, UI_TEXT: {} });
-  const Detail = load('detail-window');
+  const Detail = load('windows/detail-window');
   const detail = new Detail({ CSS_CLASS: {}, ICON: {}, EVENT: {}, section: main.section.bind(main),
     getAreaColors: () => ({}), nodeChip() {}, getSelectedCluster: () => null });
   const parent = new Element('div');
@@ -174,7 +191,7 @@ test('current hierarchy retains density and planarity classifications without an
 });
 
 test('undetermined row contains its original groups and tag connection instead of an unrelated top-level list', async () => {
-  const { buildAreaHierarchy } = require('../src/area-model');
+  const { buildAreaHierarchy } = require('../src/graph/area-model');
   const graph = new Map([
     ['a', new Set(['b', '#cross'])], ['b', new Set(['a'])],
     ['c', new Set(['d', '#cross'])], ['d', new Set(['c'])], ['#cross', new Set(['a', 'c'])],
@@ -182,9 +199,9 @@ test('undetermined row contains its original groups and tag connection instead o
   const undetermined = { nodes: ['a', 'b', 'c', 'd', '#cross'], links: [], density: 0.5, meanLocalDensity: 0.5 };
   const planar = { safe: [], definite: [], suspect: [], remainder: [undetermined] };
   const areaModel = await buildAreaHierarchy(graph, planar, async () => {});
-  const Main = load('main-window');
+  const Main = load('windows/main-window');
   const main = new Main({ state: { sections: {} }, EVENT: {}, CSS_CLASS: {}, ICON: {}, UI_TEXT: {} });
-  const Detail = load('detail-window');
+  const Detail = load('windows/detail-window');
   const detail = new Detail({ CSS_CLASS: {}, ICON: {}, EVENT: {},
     section: main.section.bind(main), getAreaColors: () => ({}), nodeChip() {},
     getSelectedCluster: () => null,
@@ -202,7 +219,7 @@ test('undetermined row contains its original groups and tag connection instead o
 });
 
 test('cross-parent links appear inside the planar and undetermined rows', async () => {
-  const { buildAreaHierarchy } = require('../src/area-model');
+  const { buildAreaHierarchy } = require('../src/graph/area-model');
   const graph = new Map([
     ['a', new Set(['b', '#cross'])], ['b', new Set(['a'])],
     ['c', new Set(['d', '#cross'])], ['d', new Set(['c'])], ['#cross', new Set(['a', 'c'])],
@@ -213,9 +230,9 @@ test('cross-parent links appear inside the planar and undetermined rows', async 
   const areaModel = await buildAreaHierarchy(graph, planar, async () => {});
   assert.equal(areaModel.parents.length, 2);
   assert.equal(areaModel.parents.some(parent => parent.kind === 'suspect'), false);
-  const Main = load('main-window');
+  const Main = load('windows/main-window');
   const main = new Main({ state: { sections: {} }, EVENT: {}, CSS_CLASS: {}, ICON: {}, UI_TEXT: {} });
-  const Detail = load('detail-window');
+  const Detail = load('windows/detail-window');
   const detail = new Detail({ CSS_CLASS: {}, ICON: {}, EVENT: {},
     section: main.section.bind(main), getAreaColors: () => ({}), nodeChip() {}, getSelectedCluster: () => null });
   detail.api.EVENT.click = 'click';
@@ -264,9 +281,9 @@ test('cross-parent links appear inside the planar and undetermined rows', async 
 
 test('rendering and closing the orphan window preserves the analysis information', () => {
   const document = { body: new Element('body') };
-  const Main = load('main-window', document);
+  const Main = load('windows/main-window', document);
   const main = new Main({ state: { sections: { planar: true, orphan: true } }, EVENT: {}, CSS_CLASS: {}, ICON: {}, UI_TEXT: { clean: 'clean' } });
-  const Detail = load('detail-window', document);
+  const Detail = load('windows/detail-window', document);
   const api = {
     CSS_CLASS: {}, EVENT: {}, ICON: {}, UI_TEXT: { clean: 'clean' },
     getPointerHeldAt: () => 0,
@@ -299,9 +316,9 @@ test('rendering and closing the orphan window preserves the analysis information
 });
 
 test('ordinary isolated notes are read-only and allowed notes and generated cleanup stay collapsed', () => {
-  const Main = load('main-window');
+  const Main = load('windows/main-window');
   const main = new Main({ state: { sections: {} }, EVENT: {}, CSS_CLASS: {}, ICON: {}, UI_TEXT: {} });
-  const Detail = load('detail-window');
+  const Detail = load('windows/detail-window');
   let opened = null;
   const note = { path: 'note.md', basename: 'note' };
   const detail = new Detail({ CSS_CLASS: {}, ICON: {}, EVENT: { click: 'click' }, UI_TEXT: { clean: 'clean' },
@@ -325,12 +342,12 @@ test('ordinary isolated notes are read-only and allowed notes and generated clea
 });
 
 test('nested orphan sections invoke the same window fitting after expanding or collapsing', () => {
-  const Main = load('main-window');
+  const Main = load('windows/main-window');
   const sections = { orphan: true, assets: true };
   let saves = 0;
   const main = new Main({ state: { sections }, EVENT: {}, CSS_CLASS: {}, ICON: {}, UI_TEXT: {},
     saveState() { saves++; } });
-  const Detail = load('detail-window');
+  const Detail = load('windows/detail-window');
   let fits = 0, constraints = 0, collapse;
   const detail = new Detail({ CSS_CLASS: {}, ICON: {}, EVENT: {}, UI_TEXT: { clean: 'clean' },
     getPointerHeldAt: () => 0, section: main.section.bind(main),
@@ -365,7 +382,7 @@ test('nested orphan sections invoke the same window fitting after expanding or c
 
 test('English main, isolated-note and analysis windows translate visible labels while preserving note names', async () => {
   const document = { body: new Element('body') };
-  const Main = load('main-window', document, 'en');
+  const Main = load('windows/main-window', document, 'en');
   const empty = { orphans: [], strayThumbs: [], orphanBases: [],
     noteIsolation: { ready: true, isolated: [{ path: '日本語.md', basename: '日本語' }], tagOnly: [], allowed: [] } };
   const main = new Main({ state: { sections: {} }, EVENT: {}, CSS_CLASS: {}, ICON: {},
@@ -380,7 +397,7 @@ test('English main, isolated-note and analysis windows translate visible labels 
   const texts = walk(main.el).map(element => element.options.text).filter(Boolean);
   assert.ok(texts.includes('Areas'));
   assert.ok(texts.includes('File management'));
-  const Detail = load('detail-window', document, 'en');
+  const Detail = load('windows/detail-window', document, 'en');
   const detail = new Detail({ CSS_CLASS: {}, ICON: {}, EVENT: {}, UI_TEXT: { clean: 'clean' },
     section: main.section.bind(main), getAreaColors: () => ({}), nodeChip() {}, getSelectedCluster: () => null });
   const isolated = new Element('div'); detail.renderOrphans(isolated, empty, 0);
@@ -402,7 +419,7 @@ test('English main, isolated-note and analysis windows translate visible labels 
 });
 
 test('isolated indicator totals ordinary notes and every generated-data kind and remains unknown while parsing', () => {
-  const Main = load('main-window');
+  const Main = load('windows/main-window');
   const file = path => ({ path });
   let result = { orphans: [file('_meta/a.md')], strayThumbs: [file('_thumbs/web-a.png')], orphanBases: [file('_bases/a.base')],
     noteIsolation: { ready: true, isolated: [file('a.md'), file('b.md')], tagOnly: [file('tag.md')], allowed: [file('allowed.md')] } };
@@ -431,7 +448,7 @@ test('isolated indicator totals ordinary notes and every generated-data kind and
 });
 
 test('main window offers an accessible web-thumbnail button for ordinary notes', () => {
-  const Main = load('main-window');
+  const Main = load('windows/main-window');
   let opened = 0;
   const file = { path: 'note.md' };
   const main = new Main({ state: { sections: {} }, EVENT: { click: 'click' }, CSS_CLASS: {}, ICON: {}, UI_TEXT: {},

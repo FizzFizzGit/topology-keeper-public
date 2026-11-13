@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { createTranslator } = require('../src/i18n-core');
-const { toSourceUrl } = require('../src/source-url');
+const { createTranslator } = require('../src/i18n/i18n-core');
+const { toSourceUrl } = require('../src/files/source-url');
 
 class Element {
   constructor(tag, options = {}) {
@@ -54,7 +54,7 @@ function fixture(language = 'en') {
     const module = { exports: {} }; modules.set(filename, module);
     vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
       module, console, document, window, setTimeout, clearTimeout, Map, Set, URL, process,
-      require: id => id === './i18n' ? { t: createTranslator(language) }
+      require: id => id.endsWith('/i18n') ? { t: createTranslator(language) }
         : id === 'obsidian' ? { Modal, Setting, Notice: class { constructor(message) { notices.push(message); } }, setIcon() {}, setTooltip() {} }
           : id.startsWith('.') ? load(require.resolve(path.resolve(path.dirname(filename), id))) : require(id),
     }, { filename });
@@ -65,7 +65,7 @@ function fixture(language = 'en') {
 
 test('English partial graph controls and legend preserve original note labels', () => {
   const f = fixture();
-  const { renderClusterGraph } = f.load('graph-view');
+  const PartialGraphWindow = f.load('graph-view/graph-view');
   const sidebar = new Element('div', { cls: 'tk-sidebar-host' });
   f.document.body.appendChild(sidebar);
   const parent = sidebar.createDiv();
@@ -74,8 +74,9 @@ test('English partial graph controls and legend preserve original note labels', 
     '日本語.md': { 'other.md': 1 }, 'other.md': { '日本語.md': 1 },
   } } }, maint: { graphAdj: new Map([
     ['日本語.md', new Set(['other.md'])], ['other.md', new Set(['日本語.md'])],
-  ]) }, disposeGraphListeners() {}, saveData() {} };
-  renderClusterGraph(plugin, parent, { nodes: ['日本語.md', 'other.md'], links: [], title: 'Area 1' });
+  ]) }, saveData() {} };
+  const view = new PartialGraphWindow(plugin);
+  view.render(parent, { nodes: ['日本語.md', 'other.md'], links: [], title: 'Area 1' });
   assert.equal(parent.children.length, 0);
   const panel = f.document.body.children.find(child => child.options.cls === 'alp-graph-panel');
   assert.ok(panel);
@@ -100,13 +101,13 @@ test('English partial graph controls and legend preserve original note labels', 
     assert.equal(hit.style.fill, 'transparent');
     assert.equal(hit.style.stroke, 'none');
   }
-  plugin.maint.graphCleanup();
+  view.dispose();
   assert.deepEqual(f.document.body.children, [sidebar]);
 });
 
 test('English rename dialog submits the unchanged user filename', async () => {
   const f = fixture();
-  const Rename = f.load('rename-external-modal');
+  const Rename = f.load('files/rename-external-modal');
   let renamed;
   const modal = new Rename({}, '日本語.txt', async name => { renamed = name; });
   modal.onOpen();
@@ -119,7 +120,7 @@ test('English rename dialog submits the unchanged user filename', async () => {
 
 test('English file move confirmation, completion and recovery notices use translated messages', async () => {
   const f = fixture();
-  const Move = f.load('move-external-modal');
+  const Move = f.load('files/move-external-modal');
   const source = toSourceUrl(path.resolve('日本語.txt'));
   const modal = new Move({}, [{ source }], { moveExternalFiles: async entries => entries });
   modal.folder = path.resolve('移動先'); modal.selected.add(source);
@@ -129,7 +130,7 @@ test('English file move confirmation, completion and recovery notices use transl
   assert.ok(text(modal.contentEl).includes('日本語.txt'));
   await f.controls.find(control => control.text === 'Move files').click();
   assert.ok(text(modal.contentEl).includes('Moved 1 file.'));
-  const Import = f.load('import-workflow');
+  const Import = f.load('files/import-workflow');
   const workflow = new Import({ state: {} }, {});
   await workflow.recover();
   assert.ok(f.notices.includes('No unfinished imports.'));
@@ -137,7 +138,7 @@ test('English file move confirmation, completion and recovery notices use transl
 
 test('English tag suggestion modal preserves selected tags and manual user input', () => {
   const f = fixture();
-  const { TagSuggestModal } = f.load('tag-suggest');
+  const { TagSuggestModal } = f.load('tags/tag-suggest');
   let submitted;
   const modal = new TagSuggestModal({}, { basename: '日本語のノート' }, [
     { tag: '研究', score: 0.8, whyCount: 2, structureFit: 0.6 },
@@ -154,7 +155,7 @@ test('English tag suggestion modal preserves selected tags and manual user input
 
 test('English related-file empty state and Base creation labels are translated', () => {
   const f = fixture();
-  const { renderExternalFiles } = f.load('external-files-view');
+  const { renderExternalFiles } = f.load('files/external-files-view');
   const manager = new Element('div');
   renderExternalFiles({}, manager, null, { CSS_CLASS: {}, EVENT: {}, section: (parent, key, title) => {
     const section = parent.createEl('details'); section.createEl('summary', { text: title }); return section;
@@ -162,7 +163,7 @@ test('English related-file empty state and Base creation labels are translated',
   assert.ok(text(manager).includes('Open a note to manage its related files'));
   assert.ok(text(manager).includes('Linked files (0)'));
   assert.ok(text(manager).includes('No related files'));
-  const { BaseNameModal } = f.load('base-modal');
+  const { BaseNameModal } = f.load('bases/base-modal');
   const modal = new BaseNameModal({}); modal.onOpen();
   assert.equal(modal.title, 'Create a new Base');
   const input = walk(modal.contentEl).find(element => element.tag === 'input');

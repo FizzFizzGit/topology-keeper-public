@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { TagSuggestionCache } = require('../src/tag-suggest-cache');
+const { TagSuggestionCache } = require('../src/tags/tag-suggest-cache');
 const modules = new Map();
 function load(filename) {
   if (modules.has(filename)) return modules.get(filename);
@@ -15,8 +15,8 @@ function load(filename) {
   modules.set(filename, module.exports);
   return module.exports;
 }
-const { computeTagSuggestions } = load(require.resolve('../src/tag-suggest'));
-const { prepareTagSource, buildTagDoc } = load(require.resolve('../src/tag-suggest-document'));
+const { computeTagSuggestions } = load(require.resolve('../src/tags/tag-suggest'));
+const { prepareTagSource, buildTagDoc } = load(require.resolve('../src/tags/tag-suggest-document'));
 const plain = value => JSON.parse(JSON.stringify(value));
 
 test('compound extraction and document features reuse one prepared body and metadata read', async () => {

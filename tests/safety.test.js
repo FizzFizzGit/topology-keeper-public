@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { toSourceUrl, pathFromSource } = require('../src/source-url');
-const { CONFIG, loadSettings } = require('../src/plugin-settings');
-const { readImageFile } = require('../src/image-file');
+const { toSourceUrl, pathFromSource } = require('../src/files/source-url');
+const { CONFIG, loadSettings } = require('../src/settings/plugin-settings');
+const { readImageFile } = require('../src/files/image-file');
 
 const { loadSource: load } = require('./helpers/load-source');
 class TFile {
@@ -16,9 +16,9 @@ const obsidian = { TFile, Notice: class { constructor(message) { notices.push(me
 
 test('new imports save each recovery target once through the normal import workflow', async () => {
   const snapshots = [];
-  const Import = load('import-workflow', {
+  const Import = load('files/import-workflow', {
     obsidian,
-    './base-modal': { BaseNameModal: class { async waitForValue() { return 'Files'; } } },
+    '../bases/base-modal': { BaseNameModal: class { async waitForValue() { return 'Files'; } } },
     electron: { remote: { dialog: { showOpenDialog: async () => ({
       canceled: false, filePaths: [path.resolve('external-document.pdf')],
     }) } } },
@@ -51,7 +51,7 @@ test('external image embeds default off and require explicit true', () => {
 test('external file opening rejects URLs, executables and directories', async () => {
   let opened = 0;
   let regular = true;
-  const Actions = load('external-file-actions', {
+  const Actions = load('files/external-file-actions', {
     obsidian,
     fs: { promises: { stat: async () => ({ isFile: () => regular }), realpath: async value => value } },
     electron: { shell: { openPath: async () => { opened++; return ''; } } },
@@ -96,7 +96,7 @@ function deletionFixture() {
     metadataCache: { resolvedLinks, getFileCache: file => caches.get(file.path), getFirstLinkpathDest: name => files.find(f => f.path === name) },
     fileManager: { trashFile: async file => { removed.push(file.path); files.splice(files.indexOf(file), 1); } },
   };
-  const { computeOrphans } = load('maintenance-check', { obsidian });
+  const { computeOrphans } = load('analysis/maintenance-check', { obsidian });
   const getThumbnailForMeta = file => covers.get(file.path);
   const plugin = {
     app, state: {}, importWorkflow: { importing: false },
@@ -112,7 +112,7 @@ function deletionFixture() {
 }
 test('cleanup waits for metadata and unfinished imports', async () => {
   const f = deletionFixture();
-  const actions = load('maintenance-actions', { obsidian });
+  const actions = load('analysis/maintenance-actions', { obsidian });
   f.caches.delete(f.other.path);
   assert.equal(f.plugin.computeOrphans().ready, false);
   assert.equal(await actions.trashMeta(f.plugin, f.meta), false);
@@ -123,7 +123,7 @@ test('cleanup waits for metadata and unfinished imports', async () => {
 });
 test('shared thumbnails and thumbnails referenced in body links are preserved', async () => {
   const f = deletionFixture();
-  const actions = load('maintenance-actions', { obsidian });
+  const actions = load('analysis/maintenance-actions', { obsidian });
   f.covers.set(f.other.path, f.thumb);
   assert.equal(await actions.trashMeta(f.plugin, f.meta), true);
   assert.deepEqual(f.removed, [f.meta.path]);
@@ -133,7 +133,7 @@ test('shared thumbnails and thumbnails referenced in body links are preserved', 
 });
 test('deletion rechecks references after confirmation', async () => {
   const f = deletionFixture();
-  const actions = load('maintenance-actions', { obsidian }, { confirm: () => {
+  const actions = load('analysis/maintenance-actions', { obsidian }, { confirm: () => {
     f.resolvedLinks[f.other.path] = { [f.meta.path]: 1 };
     return true;
   } });
@@ -147,7 +147,7 @@ test('explicit frontmatter links protect metadata notes from deletion', () => {
 });
 test('private thumbnails are removed along with orphan metadata', async () => {
   const f = deletionFixture();
-  const actions = load('maintenance-actions', { obsidian });
+  const actions = load('analysis/maintenance-actions', { obsidian });
   assert.equal(await actions.trashMeta(f.plugin, f.meta), true);
   assert.deepEqual(f.removed, [f.meta.path, f.thumb.path]);
 });
@@ -179,7 +179,7 @@ test('web thumbnail cleanup rechecks embedded references after confirmation and 
   const web = new TFile('_thumbs/12345678-1234-4123-8123-123456789abc.png');
   f.plugin.app.vault.getFiles().push(web);
   f.plugin.state.webThumbnailFiles = { [web.path]: 256 };
-  const actions = load('maintenance-actions', { obsidian }, { confirm: () => {
+  const actions = load('analysis/maintenance-actions', { obsidian }, { confirm: () => {
     f.caches.set(f.other.path, { embeds: [{ link: web.path }] });
     return true;
   } });
@@ -190,7 +190,7 @@ test('web thumbnail cleanup rechecks embedded references after confirmation and 
   await actions.trashOrphans(f.plugin);
   assert.equal(f.removed.includes(web.path), false);
   f.plugin.webThumbnails.controller = null;
-  const confirmed = load('maintenance-actions', { obsidian }, { confirm: () => true });
+  const confirmed = load('analysis/maintenance-actions', { obsidian }, { confirm: () => true });
   await confirmed.trashOrphans(f.plugin);
   assert.equal(f.removed.includes(web.path), true);
 });
@@ -216,7 +216,7 @@ test('image cache evicts oldest entries to enforce its byte limit', async () => 
   let id = 0;
   let reads = 0;
   const revoked = [];
-  const Images = load('external-image-embed', {
+  const Images = load('files/external-image-embed', {
     obsidian, fs: { promises: { stat: async () => ({ mtimeMs: 1, size: 4 }) } },
     './image-file': { readImageFile: async () => { reads++; return Buffer.from('data'); } },
   }, { Blob, URL: { createObjectURL: () => 'blob:' + ++id, revokeObjectURL: url => revoked.push(url) } });
@@ -238,14 +238,15 @@ test('image cache evicts oldest entries to enforce its byte limit', async () => 
   }
 });
 test('default embed setting prevents reading arbitrary images from note content', async () => {
-  const Images = load('external-image-embed', { obsidian });
+  const Images = load('files/external-image-embed', { obsidian });
   const images = new Images({}, { getSettings: () => ({ enableExternalImageEmbeds: false }) });
   await images.render({ querySelectorAll() { throw new Error('must not inspect or read embeds'); } }, {});
 });
 test('analysis timeout retains matching previous graph and result', async () => {
-  const Workflow = load('maintenance-workflow', {
+  const Workflow = load('analysis/maintenance-workflow', {
     obsidian,
-    './graph-analysis': { buildAdjacency: () => new Map(), findNonPlanar: async () => {
+    './vault-graph': { buildAdjacency: () => new Map() },
+    '../graph/graph-analysis': { findNonPlanar: async () => {
       const error = new Error('timeout'); error.code = 'ANALYSIS_TIMEOUT'; throw error;
     } },
   }, { performance, setTimeout, console: { error() {} } });
@@ -265,7 +266,7 @@ test('analysis timeout retains matching previous graph and result', async () => 
 });
 test('ticker interrupts work after the analysis time budget', async () => {
   let now = 0;
-  const Workflow = load('maintenance-workflow', { obsidian }, { performance: { now: () => now } });
+  const Workflow = load('analysis/maintenance-workflow', { obsidian }, { performance: { now: () => now } });
   const workflow = new Workflow({ maint: { token: 1 } }, {});
   const tick = workflow.makeTicker(1);
   now = CONFIG.analysisTimeLimit + 1;
@@ -276,10 +277,11 @@ test('area model failure preserves the previous graph, classification and member
   const previousGraph = new Map();
   const previousPlanar = { safe: [] };
   const previousModel = { originalAreas: [{ id: 'old' }], combinedAreas: [] };
-  const Workflow = load('maintenance-workflow', {
+  const Workflow = load('analysis/maintenance-workflow', {
     obsidian,
-    './graph-analysis': { buildAdjacency: () => new Map(), findNonPlanar: async () => ({ safe: ['new'] }) },
-    './area-model': { buildAreaHierarchy: async () => {
+    './vault-graph': { buildAdjacency: () => new Map() },
+    '../graph/graph-analysis': { findNonPlanar: async () => ({ safe: ['new'] }) },
+    '../graph/area-model': { buildAreaHierarchy: async () => {
       const error = new Error('timeout'); error.code = 'ANALYSIS_TIMEOUT'; throw error;
     } },
   }, { performance, setTimeout, console: { error() {} } });
@@ -301,14 +303,15 @@ test('maintenance publishes the graph and new area model only after both analyse
   const planar = { safe: [] };
   const model = { originalAreas: [], combinedAreas: [] };
   let plugin;
-  const Workflow = load('maintenance-workflow', {
+  const Workflow = load('analysis/maintenance-workflow', {
     obsidian,
-    './graph-analysis': { buildAdjacency: () => graph, findNonPlanar: async (adjacency, tick, limit, options) => {
+    './vault-graph': { buildAdjacency: () => graph },
+    '../graph/graph-analysis': { findNonPlanar: async (adjacency, tick, limit, options) => {
       assert.equal(adjacency, graph);
       assert.ok(options.tagWeights instanceof Map);
       return planar;
     } },
-    './area-model': { buildAreaHierarchy: async adjacency => {
+    '../graph/area-model': { buildAreaHierarchy: async adjacency => {
       assert.equal(adjacency, graph);
       assert.equal(plugin.maint.graphAdj, undefined);
       return model;
@@ -326,7 +329,7 @@ test('maintenance publishes the graph and new area model only after both analyse
 });
 
 test('import recovery keeps journal on failure and clears it only after successful saving', async () => {
-  const Import = load('import-workflow', { obsidian, './base-modal': {} });
+  const Import = load('files/import-workflow', { obsidian, '../bases/base-modal': {} });
   const main = new TFile('note.md');
   const asset = new TFile('_meta/recovery.md');
   let fail = true;
@@ -367,7 +370,7 @@ test('external rename updates shared references, refuses collisions and restores
         change(metadata.get(file));
       } },
     };
-    const Actions = load('external-file-actions', { obsidian });
+    const Actions = load('files/external-file-actions', { obsidian });
     const actions = new Actions(app, { FOLDERS: { meta: 'meta' } });
     const entry = { file: files[0], source: toSourceUrl(original) };
     fs.writeFileSync(renamed, 'existing');
@@ -401,7 +404,7 @@ test('bulk move checks all collisions before starting and updates references acr
       metadataCache: { getFileCache: file => ({ frontmatter: metadata.get(file) }) },
       fileManager: { processFrontMatter: async (file, callback) => callback(metadata.get(file)) },
     };
-    const Actions = load('external-file-actions', { obsidian });
+    const Actions = load('files/external-file-actions', { obsidian });
     const actions = new Actions(app, { FOLDERS: { meta: 'meta' } });
     const entries = files.map((file, index) => ({ file, source: toSourceUrl(originals[index]) }));
     const collision = path.join(destination, 'second.txt');
@@ -432,7 +435,7 @@ test('bulk move reports completed files and stops on the first failure', async (
       fs.writeFileSync(filename, name);
       return { source: toSourceUrl(filename) };
     });
-    const Actions = load('external-file-actions', { obsidian });
+    const Actions = load('files/external-file-actions', { obsidian });
     const actions = new Actions({}, {});
     const visited = [];
     actions.relocateExternal = async entry => {

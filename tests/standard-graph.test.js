@@ -2,15 +2,15 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const { loadSettings } = require('../src/plugin-settings');
+const { loadSettings } = require('../src/settings/plugin-settings');
 
 function fixture(planar) {
   const notices = [];
   const module = { exports: {} };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../src/standard-graph'), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/graph-view/standard-graph'), 'utf8'), {
     module, console: { error() {} },
     require: id => id === 'obsidian' ? { Notice: class { constructor(message) { notices.push(message); } } }
-      : id === './i18n' ? { t: require('../src/i18n-core').createTranslator('ja') } : require('../src/' + id.slice(2)),
+      : id.endsWith('/i18n') ? { t: require('../src/i18n/i18n-core').createTranslator('ja') } : require('node:module').createRequire(require.resolve('../src/graph-view/standard-graph'))(id),
   });
   let saved = 0, opened = 0;
   const manual = { query: 'tag:#personal', color: { a: 1, rgb: 42 } };

@@ -93,7 +93,7 @@ Managed folders are configurable. Changing a folder setting does not move existi
 
 ## Understanding area analysis
 
-Distance analysis uses a graph of notes and tags, with an edge for each direct link or tag assignment. Floyd–Warshall calculates shortest hop counts. Neighborhood overlap determines boundary votes. Edges above the provisional 2.5% split-vote threshold separate distance areas. The current limit is 256 vertices.
+Distance analysis uses a graph of notes and tags, with an edge for each direct link or tag assignment. Floyd–Warshall calculates shortest hop counts. Neighborhood overlap determines boundary votes. Edges above the provisional 2.5% split-vote threshold separate distance areas. The analysis window asks before starting a potentially slow run. Analysis can continue until it completes or you cancel it. Cancelling keeps the previous result.
 
 Planarity is checked on the connections within each primitive or combined area. The check uses edge bounds and K₅ and K₃,₃ tests based on Kuratowski’s theorem, then tests edge orders or left–right cycle constraints when needed. Combined areas use average connections per vertex, including note and tag vertices. The provisional dense threshold is 3.5 connections per vertex.
 

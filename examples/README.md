@@ -6,7 +6,7 @@ Open `portable-window.html` directly in a browser. No installation, build, Obsid
 framework, network access or storage service is required.
 Use the language links or `?lang=en` / `?lang=ja` to switch the demo UI language.
 
-Copy `src/portable-window.js`, `src/portable-window.css` and the root `LICENSE` to
+Copy `src/windows/portable-window.js`, `src/windows/portable-window.css` and the root `LICENSE` to
 another project. The JavaScript supports a browser script (`PortableWindow`) and
 CommonJS (`require`). This is an experimental library API, not a published package.
 

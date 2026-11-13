@@ -2,7 +2,7 @@
 
 作成日：2026年11月1日  
 更新日：2026年11月2日（ソース整理・処理の後始末を反映）  
-対象は Topology Keeper 0.30.0 です。
+対象は Topology Keeper 0.31.0 の開発版です。
 
 この文書は、作者が後から「何のための機能で、どう動くか」を読み返すための仕様書です。
 会話で出た案すべてではなく、作成時点のソースとテストを基準に記述しています。
@@ -109,7 +109,7 @@ Web撮影ではメタノートを作りません。画像でない外部ファ�
 - タグの所属線・縮約された辺には向きを付けません。無向の分析結果から方向を推測せず、解決済みの元リンクを使います。
 - 矢印位置は表示円の半径・線幅・余白から算出します。操作用の大きな円は透明です。
 - 描画順は辺、矢印、ノード・文字の順です。文字の可読性を優先します。
-- 中核は最大90ノード、必要に応じた周辺ノードは最大35です。選択方法によって周辺を加えない場合もあります。
+- 中核の表示上限は既定90ノードで、設定の「グラフ表示」で30〜1,200の候補から選べます。上限を超える場合、エリア内の辺を使って芯に近い順に表示します。同じ距離では次数の高いノードを優先します。必要に応じた周辺ノードは最大35で、選択方法によっては周辺を加えません。
 - 窓の位置・サイズを保存します。ノードの配置・パン・ズームは保存せず、グラフ再生成時に初期化します。
 
 ## 4. エリア分析
@@ -129,9 +129,15 @@ Web撮影ではメタノートを作りません。画像でない外部ファ�
 
 同じ親の内部で共通タグが複数の素領域や単独ノートをつないでいる場合、その関係を結合領域として表示します。
 
-分析窓の「距離と票率によるエリア」では、256頂点までの全体グラフを手動で分析できます。最短ホップ数から近傍を広げ、境界票率が暫定値の2.5%を超える接続を除いた連結成分を表示します。各成分の素領域と結合領域は、分割後に残った接続で求めます。領域間のタグ関係は元のグラフから表示します。
+分析窓の「エリア」では、全体グラフを手動で分析できます。見出しの下に結果を常に表示し、個別エリアを展開すると内訳を確認できます。最短ホップ数から近傍を広げ、境界票率が暫定値の2.5%を超える接続を除いた連結成分を表示します。各成分の素領域と結合領域は、分割後に残った接続で求めます。領域間のタグ関係は元のグラフから表示します。
 
-計算に成功すると、表示結果、隣接データ、全頂点間の最短ホップ表、計算日時を圧縮して設定データに保存します。初回はワーシャル・フロイド法で距離表を作ります。再計算では、追加・削除された辺で距離が変わり得る始点と新しい頂点から幅優先探索し、残りの行は前回の表を使います。境界票とエリアの内訳は更新した距離表から求め直します。前回結果は起動時に復元され、再計算の途中や失敗時にも表示に残ります。距離エリアの結果がある間は分析窓を距離エリア表示に切り替えます。
+256頂点、または連結成分内のノート対数と頂点・辺数から見積もる作業量の目安を超えた場合は、利用者が分析窓で開始を確認します。距離分析の頂点数と時間に固定上限はありません。計算中は処理段階を表示し、進捗バーの横のボタンで中止できます。計算が失敗した場合や中止した場合は、前回結果と保存済み距離表を保持します。距離表があり、グラフの頂点・辺に変更がない場合は前回結果をそのまま使います。
+
+計算に成功すると、表示結果、隣接データ、全頂点間の最短ホップ表、計算日時を圧縮して設定データに保存します。圧縮前の保存データが32 MiBを超える場合、今回の結果は実行中のセッションで参照できます。初回はワーシャル・フロイド法で距離表を作ります。再計算では、追加・削除された辺で距離が変わり得る始点と新しい頂点から幅優先探索し、残りの行は前回の表を使います。境界票とエリアの内訳は更新した距離表から求め直します。前回結果は起動時に復元され、再計算の途中や失敗時にも表示に残ります。距離エリアの結果がある間は分析窓を距離エリア表示に切り替えます。
+
+境界票の作業量から約1秒以上と見込まれる場合は、開始時から進捗バーを表示します。見積もりが短くても、計算が1秒続けば処理の区切りで表示します。境界票の段階では確認済みのノート対の割合を表示し、最短ホップとエリア構築・診断の段階では処理中であることを示します。
+
+コマンドパレットの「保存済みの距離分析を削除」で、前回の距離エリアと距離表を消去できます。次に分析を実行すると、最短ホップ表を初回と同じ手順で作成します。
 
 分析窓から標準グラフを開くと、前回のプラグインの色グループを結合領域の4区分の色に更新します。複数の結合領域に属するノートは、平面性が判定済みの領域のうち、所属ノート数が最も多い領域の色を使います。
 
@@ -335,15 +341,15 @@ Web画像の生成記録は、画像の表示幅と整理対象の識別に使�
 | --- | --- |
 | 導入・日常操作 | [README.ja.md](../../README.ja.md) |
 | 窓の再利用・モジュール境界 | [UI-ARCHITECTURE.md](../design/UI-ARCHITECTURE.md) |
-| 更新の調整 | `src/maintenance-workflow.js` |
-| 通常ノート／管理データの孤立条件 | `src/note-isolation.js`／`src/maintenance-check.js` |
-| 削除の再確認・実行 | `src/maintenance-actions.js` |
-| エリア分析／本文表示 | `src/graph-analysis.js`、`src/area-model.js`／`src/analysis-content.js` |
-| 部分グラフ | `src/graph-view.js`、`src/graph-selection.js`、`src/graph-layout.js`、`src/graph-interaction.js`、`src/graph-window-position.js`、`src/graph-geometry.js` |
-| 画面とプラグインの接続 | `src/window-host.js`、`src/view-state.js`、`src/deferred-refresh.js` |
-| Web撮影から保存・挿入 | `src/web-page-capture.js`、`src/web-thumbnail-workflow.js` |
-| 設定の既定値・保存形式 | `src/plugin-settings.js`、`src/window-appearance.js` |
-| 設定の書き込み順序・失敗通知 | `src/settings-persistence.js`、`src/main.js` |
+| 更新の調整 | `src/analysis/maintenance-workflow.js` |
+| 通常ノート／管理データの孤立条件 | `src/analysis/note-isolation.js`／`src/analysis/maintenance-check.js` |
+| 削除の再確認・実行 | `src/analysis/maintenance-actions.js` |
+| Vaultの隣接表／エリア分析／本文表示 | `src/analysis/vault-graph.js`／`src/graph/`／`src/analysis/analysis-content.js` |
+| 部分グラフ | `src/graph-view/graph-view.js`、`src/graph-view/graph-selection.js`、`src/graph-view/graph-layout.js`、`src/graph-view/graph-interaction.js`、`src/graph-view/graph-window-position.js`、`src/graph-view/graph-geometry.js` |
+| 画面とプラグインの接続 | `src/windows/window-host.js`、`src/windows/view-state.js`、`src/windows/deferred-refresh.js` |
+| Web撮影から保存・挿入 | `src/web-thumbnail/web-page-capture.js`、`src/web-thumbnail/web-thumbnail-workflow.js` |
+| 設定の既定値・保存形式 | `src/settings/plugin-settings.js`、`src/settings/window-appearance.js` |
+| 設定の書き込み順序・失敗通知 | `src/settings/settings-persistence.js`、`src/main.js` |
 | 公開前の未確認項目 | [RELEASE-CHECKLIST.md](../releases/RELEASE-CHECKLIST.md) |
 
 自動確認は`npm run check`、`npm test`、`npm run build`で行います。

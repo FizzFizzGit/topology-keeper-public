@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { presentAnalysis } = require('../src/analysis-presentation');
-const { createTranslator } = require('../src/i18n-core');
+const { presentAnalysis } = require('../src/analysis/analysis-presentation');
+const { createTranslator } = require('../src/i18n/i18n-core');
 
 test('presentation translates without mutating analysis and limits destinations to actual parent pairs', () => {
   const source = {

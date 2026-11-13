@@ -10,7 +10,7 @@ function loadSource(name, overrides = {}, globals = {}) {
   const nativeRequire = createRequire(filename);
   const context = { module: { exports: {} }, console, URL, ...globals,
     require: id => Object.hasOwn(overrides, id) ? overrides[id]
-      : id === './i18n' ? { t: require('../../src/i18n-core').createTranslator('ja') } : nativeRequire(id) };
+      : id.endsWith('/i18n') ? { t: require('../../src/i18n/i18n-core').createTranslator('ja') } : nativeRequire(id) };
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   return context.module.exports;
 }
